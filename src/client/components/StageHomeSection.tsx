@@ -195,13 +195,15 @@ export const StageHomeSection: React.FC<StageHomeSectionProps> = ({
 
         {/* Subtle Rotating Swirl Backdrop */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-          <img
-            src="/assets/brandkit/hypnotic-swirl-disc.svg"
-            alt=""
-            width={920}
-            height={920}
-            className="parallax-swirl-spin absolute -top-16 left-1/2 -translate-x-1/2 w-[540px] sm:w-[820px] opacity-15 mix-blend-screen"
-          />
+          <div className="hero-swirl-position">
+            <img
+              src="/assets/brandkit/hypnotic-swirl-disc.svg"
+              alt=""
+              width={920}
+              height={920}
+              className={`hero-swirl-disc ${motionOff ? 'hero-swirl-paused' : ''}`}
+            />
+          </div>
           <img
             src="/assets/brandkit/floating-magic-ribbons.svg"
             alt=""
