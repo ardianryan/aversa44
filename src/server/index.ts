@@ -1,3 +1,5 @@
+import { getConnInfo } from '@hono/node-server/conninfo';
+import { normalizeIp, resolveClientIp, verifyTurnstile } from './security/edge.ts';
 import { sendWalletReply } from './wallet-replies.ts';
 import { normalizePhone, otpDigest, signWalletAccess, verifyWalletAccess } from './wallet-auth.ts';
 import 'dotenv/config';
@@ -34,6 +36,42 @@ const PUBLIC_SITE_URL = (process.env.PUBLIC_SITE_URL || `http://localhost:${PORT
 const qrisEnabled = process.env.NODE_ENV !== 'production' || process.env.QBIZ_ENABLED === '1';
 const QBIZ_WEBHOOK_SECRET = process.env.QBIZ_WEBHOOK_SECRET || 'local_test_only_qbiz_webhook_secret_not_for_production';
 const XENDIT_CALLBACK_TOKEN = process.env.XENDIT_CALLBACK_TOKEN || 'local_test_only_xendit_callback_token_not_for_production';
+
+const turnstileEnabled = process.env.NODE_ENV === 'production' ? process.env.TURNSTILE_ENABLED !== '0' : process.env.TURNSTILE_ENABLED === '1';
+const trustedProxies = (process.env.TRUSTED_PROXY_IPS || '').split(',').map((ip) => normalizeIp(ip)).filter((ip): ip is string => Boolean(ip));
+const localBypass = process.env.ALLOW_INSECURE_LOCAL_DEV === '1' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(PUBLIC_SITE_URL);
+const buckets = new Map<string, { count: number; until: number }>();
+
+app.use('*', async (c, next) => {
+  const peer = normalizeIp(getConnInfo(c).remote.address || '');
+  const isHealth = c.req.path === '/api/health' && (peer === '127.0.0.1' || peer === '::1');
+  if (process.env.NODE_ENV === 'production' && !localBypass && !isHealth && (!peer || !trustedProxies.includes(peer))) {
+    return c.json({ success: false, error: 'Akses tidak diizinkan.' }, 403);
+  }
+  const ip = resolveClientIp(peer || '', c.req.header('X-Real-IP') || '', trustedProxies);
+  if (!ip && !isHealth) return c.json({ success: false, error: 'Alamat pengunjung tidak tersedia.' }, 400);
+  c.set('clientIp' as never, (ip || peer || '') as never);
+  await next();
+});
+
+app.get('/api/security/turnstile', (c) => c.json({ enabled: turnstileEnabled, siteKey: turnstileEnabled ? process.env.TURNSTILE_SITE_KEY || '' : '' }));
+
+async function checkChallenge(c: any, token: unknown, action: string): Promise<Response | null> {
+  if (!turnstileEnabled) return null;
+  const ip = c.get('clientIp') as string;
+  const now = Date.now();
+  const key = `${action}:${ip}`;
+  const old = buckets.get(key);
+  if ((!old || old.until <= now) && buckets.size >= 10000) {
+    for (const [k, v] of buckets) if (v.until <= now) buckets.delete(k);
+    if (buckets.size >= 10000) return c.json({ success: false, error: 'Layanan sedang sibuk. Coba lagi sebentar.' }, 429);
+  }
+  if (!old || old.until <= now) buckets.set(key, { count: 1, until: now + 60000 });
+  else if (++old.count > 20) return c.json({ success: false, error: 'Terlalu banyak percobaan. Coba lagi sebentar.' }, 429);
+  if (buckets.size > 10000) for (const [k, v] of buckets) { if (v.until <= now) buckets.delete(k); }
+  const ok = await verifyTurnstile(token, action, new URL(PUBLIC_SITE_URL).hostname, ip, process.env.TURNSTILE_SECRET_KEY || '');
+  return ok ? null : c.json({ success: false, error: 'Verifikasi keamanan belum berhasil. Silakan coba lagi.' }, 403);
+}
 
 // Security Headers Middleware
 app.use('*', async (c, next) => {
@@ -277,6 +315,8 @@ app.post('/api/orders', async (c) => {
     }, 400);
   }
 
+  const challengeError = await checkChallenge(c, (body as any)?.turnstileToken, 'checkout');
+  if (challengeError) return challengeError;
   const input = parsed.data;
   if (input.paymentMethod === 'QBIZ_QRIS' && !qrisEnabled) return c.json({ success: false, error: 'Pembayaran QRIS belum tersedia. Silakan pilih metode lain.' }, 503);
   const dbClient = await pool.connect();
@@ -664,7 +704,10 @@ function canReadOrder(c: any, order: any): boolean {
 }
 
 app.post('/api/wallet/request-code', async (c) => {
-  const body = z.object({ phone: z.string().max(30) }).safeParse(await c.req.json().catch(() => ({})));
+  const payload = await c.req.json().catch(() => ({}));
+  const challengeError = await checkChallenge(c, payload.turnstileToken, 'wallet');
+  if (challengeError) return challengeError;
+  const body = z.object({ phone: z.string().max(30) }).safeParse(payload);
   const phone = body.success ? normalizePhone(body.data.phone) : null;
   const botPhone = normalizePhone(process.env.WHATSAPP_BOT_PHONE || '');
   if (!phone) return c.json({ success: false, error: 'Masukkan nomor WhatsApp Indonesia yang valid.' }, 400);
@@ -938,6 +981,8 @@ app.post('/api/webhooks/xendit', async (c) => {
 
 app.post('/api/auth/login', async (c) => {
   const body = await c.req.json().catch(() => ({}));
+  const challengeError = await checkChallenge(c, body.turnstileToken, 'office_login');
+  if (challengeError) return challengeError;
   const username = String(body.username || '').trim();
   const password = String(body.password || '');
 
@@ -2277,6 +2322,8 @@ function validateProductionConfiguration() {
     console.warn('[AVERSA 44] Local-only production configuration bypass is enabled.');
     return;
   }
+  if (!turnstileEnabled || !process.env.TURNSTILE_SITE_KEY || !process.env.TURNSTILE_SECRET_KEY || /^(1x|2x|3x)0{10}/.test(process.env.TURNSTILE_SITE_KEY) || /^(1x|2x|3x)0{10}/.test(process.env.TURNSTILE_SECRET_KEY)) throw new Error('Live Turnstile keys must be configured in production.');
+  if (!trustedProxies.length || trustedProxies.length !== (process.env.TRUSTED_PROXY_IPS || '').split(',').length) throw new Error('TRUSTED_PROXY_IPS must list the exact proxy peer addresses.');
   if (url.protocol !== 'https:' || isLocal || url.username || url.password) {
     throw new Error('PUBLIC_SITE_URL must be a public HTTPS origin in production.');
   }

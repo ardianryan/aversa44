@@ -1,3 +1,4 @@
+import { TurnstileChallenge } from './ui/TurnstileChallenge.tsx';
 import React, { useEffect, useState } from 'react';
 import { ResponsiveSheet } from './ui/ResponsiveSheet.tsx';
 import type { CartItem, HydratedOrder, ShippingZone } from '../types.ts';
@@ -42,6 +43,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [securityToken, setSecurityToken] = useState('');
+  const [securityReset, setSecurityReset] = useState(0);
   const [createdResult, setCreatedResult] = useState<HydratedOrder | null>(null);
   const [proofNote, setProofNote] = useState('');
   const [settling, setSettling] = useState(false);
@@ -123,6 +126,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          turnstileToken: securityToken,
           customerName,
           customerPhone,
           customerEmail,
@@ -167,6 +171,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     } catch (err: any) {
       setErrorMsg(err?.message || 'Terjadi kesalahan saat membuat pesanan.');
     } finally {
+      setSecurityToken(''); setSecurityReset((n) => n + 1);
       setSubmitting(false);
     }
   };
@@ -635,6 +640,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
+            <TurnstileChallenge action="checkout" onToken={setSecurityToken} resetKey={securityReset} />
             {errorMsg && (
               <div role="alert" className="p-3 rounded-lg bg-[#310603] border border-[#F5B8CB] text-xs font-bold text-[#F5B8CB]">
                 {errorMsg}

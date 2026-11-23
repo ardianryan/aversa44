@@ -1,3 +1,4 @@
+import { TurnstileChallenge } from './ui/TurnstileChallenge.tsx';
 import React, { useEffect, useState } from 'react';
 import { GoldenTicket3DCard } from './three/GoldenTicket3DCard.tsx';
 import type { HydratedOrder } from '../types.ts';
@@ -25,16 +26,18 @@ export const TicketWalletSection: React.FC<TicketWalletSectionProps> = ({
   const [codeSent, setCodeSent] = useState(false);
   const [verified, setVerified] = useState(false);
   const [verificationBusy, setVerificationBusy] = useState(false);
+  const [securityToken, setSecurityToken] = useState('');
+  const [securityReset, setSecurityReset] = useState(0);
 
   const requestCode = async () => {
     setVerificationBusy(true); setErrorMsg('');
     try {
-      const response = await fetch('/api/wallet/request-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) });
+      const response = await fetch('/api/wallet/request-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, turnstileToken: securityToken }) });
       const data = await response.json();
       if (!response.ok) { setErrorMsg(data.error || 'Kode belum dapat dikirim.'); return; }
       setChallenge(data.challenge); setWhatsappUrl(data.whatsappUrl); setCodeSent(true);
     } catch { setErrorMsg('Tidak dapat menghubungi layanan verifikasi.'); }
-    finally { setVerificationBusy(false); }
+    finally { setSecurityToken(''); setSecurityReset((n) => n + 1); setVerificationBusy(false); }
   };
 
   const verifyCode = async (event: React.FormEvent) => {
@@ -110,6 +113,7 @@ export const TicketWalletSection: React.FC<TicketWalletSectionProps> = ({
         <label className="block text-sm font-bold text-[#F7D160]">Nomor WhatsApp saat memesan
           <input type="tel" required autoComplete="tel" value={phone} onChange={e => { setPhone(e.target.value); setCodeSent(false); }} placeholder="0812..." className="mt-2 block w-full min-h-[44px] px-4 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-[#FFF5D6]" />
         </label>
+        <TurnstileChallenge action="wallet" onToken={setSecurityToken} resetKey={securityReset} />
         <button type="button" disabled={verificationBusy || !phone.trim()} onClick={requestCode} className="min-h-[44px] px-4 rounded-xl border border-[#F5C538] text-[#FDF39D] font-bold disabled:opacity-60">Siapkan pesan verifikasi</button>
         {codeSent && <><p className="text-sm text-[#FFF5D6]">Buka WhatsApp dan kirim pesan yang sudah disiapkan dari nomor di atas. Tautan berlaku 5 menit.</p>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

@@ -1,0 +1,18 @@
+# Example on the trusted external reverse proxy. Add your TLS certificates.
+# Firewall VPS port 4400 to the reverse proxy only.
+server {
+    listen 443 ssl;
+    server_name aversa.sman1gedeg.sch.id;
+    ssl_certificate /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+    location / {
+        proxy_pass http://VPS_IP:4400;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}

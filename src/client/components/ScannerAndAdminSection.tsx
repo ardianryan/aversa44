@@ -1,3 +1,4 @@
+import { TurnstileChallenge } from './ui/TurnstileChallenge.tsx';
 import React, { useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
 import type { StaffUser, TicketTier } from '../types.ts';
@@ -21,6 +22,8 @@ export const ScannerAndAdminSection: React.FC<ScannerAndAdminSectionProps> = ({
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [securityToken, setSecurityToken] = useState('');
+  const [securityReset, setSecurityReset] = useState(0);
 
   // Scanner State
   const [gateLocation, setGateLocation] = useState('Gate Utama Puncak Aversa');
@@ -118,7 +121,7 @@ export const ScannerAndAdminSection: React.FC<ScannerAndAdminSectionProps> = ({
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, turnstileToken: securityToken }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -129,6 +132,7 @@ export const ScannerAndAdminSection: React.FC<ScannerAndAdminSectionProps> = ({
     } catch (err: any) {
       setAuthError(err?.message || 'Gagal autentikasi.');
     } finally {
+      setSecurityToken(''); setSecurityReset((n) => n + 1);
       setAuthLoading(false);
     }
   };
@@ -318,6 +322,7 @@ export const ScannerAndAdminSection: React.FC<ScannerAndAdminSectionProps> = ({
             />
           </div>
 
+          <TurnstileChallenge action="office_login" onToken={setSecurityToken} resetKey={securityReset} />
           {authError && (
             <div role="alert" className="p-3 rounded-lg bg-[#310603] border border-[#F5B8CB] text-xs font-bold text-[#F5B8CB]">
               {authError}
