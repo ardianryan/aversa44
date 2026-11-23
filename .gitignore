@@ -5,3 +5,6 @@ dist/
 !.env.example
 public/uploads/
 .DS_Store
+
+# Referensi desain hanya untuk penggunaan lokal
+/referensi desain/
