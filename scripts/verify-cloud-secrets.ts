@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { openCloudSecret, sealCloudSecret } from '../src/server/security/cloud-secrets.ts';
+const key = 'ab'.repeat(32);
+const one = sealCloudSecret('test-stream-key', key);
+const two = sealCloudSecret('test-stream-key', key);
+assert.notEqual(one, two);
+assert.equal(openCloudSecret(one, key), 'test-stream-key');
+assert.throws(() => openCloudSecret(one, 'cd'.repeat(32)));
+const [iv, tag, encrypted] = one.split('.');
+const damaged = Buffer.from(encrypted, 'base64url');
+damaged[0] ^= 1;
+assert.throws(() => openCloudSecret([iv, tag, damaged.toString('base64url')].join('.'), key));
+assert.throws(() => sealCloudSecret('test', 'short'));
+console.log('Cloud secret checks passed');

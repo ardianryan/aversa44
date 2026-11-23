@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
           ref: ${{ inputs.tag || github.ref }}
       - name: Validate release version
         id: version
@@ -35,6 +36,8 @@ jobs:
           version=$(node -p "require('./package.json').version")
           test "$RELEASE_TAG" = "v$version"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          newest=$(git tag --list 'v*' --sort=-version:refname | awk '/^v[0-9]+[.][0-9]+[.][0-9]+$/ && !first { first=$0 } END { print first }')
+          if [ "$RELEASE_TAG" = "$newest" ]; then echo "is_latest=true" >> "$GITHUB_OUTPUT"; else echo "is_latest=false" >> "$GITHUB_OUTPUT"; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
       - name: Set image name
@@ -51,6 +54,7 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
+            type=raw,value=latest,enable=${{ steps.version.outputs.is_latest }}
             type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=sha-${{ steps.version.outputs.sha }}
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -59,6 +63,22 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        id: stream_meta
+        with:
+          images: ${{ steps.image.outputs.name }}-stream
+          tags: |
+            type=raw,value=latest,enable=${{ steps.version.outputs.is_latest }}
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=sha-${{ steps.version.outputs.sha }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: cloud-stream/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.stream_meta.outputs.tags }}
+          labels: ${{ steps.stream_meta.outputs.labels }}
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

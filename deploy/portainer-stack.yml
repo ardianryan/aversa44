@@ -1,6 +1,7 @@
 services:
   aversa:
-    image: ${AVERSA_IMAGE:?Set the image containing the proxy and Turnstile changes}
+    image: ghcr.io/ardianryan/aversa44:latest
+    pull_policy: always
     restart: unless-stopped
     ports:
       - "4400:4400"
@@ -19,6 +20,10 @@ services:
       PGDATABASE: aversa44_db
       SESSION_SECRET: ${SESSION_SECRET:?Set a session secret}
       TICKET_HMAC_SECRET: ${TICKET_HMAC_SECRET:?Set a ticket secret}
+      CLOUD_STREAM_ENCRYPTION_KEY: ${CLOUD_STREAM_ENCRYPTION_KEY:?Set a 64-character hexadecimal encryption key}
+      CLOUD_STREAM_DATA_DIR: /cloud-data
+      CLOUD_STREAM_TAILSCALE_IP: ${CLOUD_STREAM_TAILSCALE_IP:?Set the VPS Tailscale IPv4 address}
+      CLOUD_STREAM_INGEST_USER: ${CLOUD_STREAM_INGEST_USER:?Set the OBS ingest username}
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Administrator AVERSA}
@@ -37,6 +42,31 @@ services:
       GOWA_ALLOW_TAILNET_HTTP: ${GOWA_ALLOW_TAILNET_HTTP:-0}
     volumes:
       - aversa_uploads:/app/public/uploads
+      - aversa_stream_data:/cloud-data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  cloud-stream:
+    image: ghcr.io/ardianryan/aversa44-stream:latest
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${CLOUD_STREAM_TAILSCALE_IP:?Set the VPS Tailscale IPv4 address}:1935:1935/tcp"
+      - "${CLOUD_STREAM_TAILSCALE_IP:?Set the VPS Tailscale IPv4 address}:8890:8890/udp"
+    environment:
+      NODE_ENV: production
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: aversa44
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set the database password}
+      PGDATABASE: aversa44_db
+      CLOUD_STREAM_ENCRYPTION_KEY: ${CLOUD_STREAM_ENCRYPTION_KEY:?Set a 64-character hexadecimal encryption key}
+      CLOUD_STREAM_INGEST_USER: ${CLOUD_STREAM_INGEST_USER:?Set the OBS ingest username}
+      CLOUD_STREAM_INGEST_PASSWORD: ${CLOUD_STREAM_INGEST_PASSWORD:?Set a random OBS ingest password}
+      CLOUD_STREAM_RESOLUTION: ${CLOUD_STREAM_RESOLUTION:-720p}
+      CLOUD_STREAM_DATA_DIR: /data
+    volumes:
+      - aversa_stream_data:/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,3 +87,4 @@ services:
 volumes:
   aversa_postgres:
   aversa_uploads:
+  aversa_stream_data:

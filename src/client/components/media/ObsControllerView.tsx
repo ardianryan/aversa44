@@ -1,3 +1,4 @@
+import { CloudStreamPanel } from './CloudStreamPanel.tsx';
 import React, { useState } from 'react';
 import { ResponsiveSheet } from '../ui/ResponsiveSheet.tsx';
 import { ConfirmModal } from '../ui/ConfirmModal.tsx';
@@ -116,6 +117,7 @@ export const ObsControllerView: React.FC<ObsControllerViewProps> = ({
 
   return (
     <div className="space-y-8">
+      <CloudStreamPanel onNotify={onNotify} />
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h2 className="font-theatrical text-2xl sm:text-3xl font-extrabold text-[#FFF5D6]">

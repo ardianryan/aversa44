@@ -4,6 +4,15 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-23
+
+- Add cloud live streaming worker (`aversa44-stream`) with single-encode GStreamer and FFmpeg remuxing pipeline, seamless fallback slate, and automatic OBS disconnect/reconnect recovery.
+- Add Live Kit cloud streaming management panel in Office dashboard (`/office/live-kit`) with encrypted YouTube stream key storage (AES-256-GCM), fallback WAV audio management, and real-time worker heartbeat telemetry.
+- Support RTMP and SRT OBS ingestion with source credential verification and Tailscale network binding.
+- Update Portainer stack deployment to coordinate web application, streaming worker, and PostgreSQL with shared cloud data volume.
+- Enhance Media Studio with full Canva-aligned template suite and local audio generation workflows.
+- Harden backend RBAC and add automated verification suite for cloud stream secrets and endpoints.
+
 ## 0.1.1 - 2026-11-23
 
 - Protect office login, checkout, and wallet verification requests with server-validated Cloudflare Turnstile.

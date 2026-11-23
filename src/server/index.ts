@@ -1,3 +1,4 @@
+import { sealCloudSecret } from './security/cloud-secrets.ts';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { normalizeIp, resolveClientIp, verifyTurnstile } from './security/edge.ts';
 import { sendWalletReply } from './wallet-replies.ts';
@@ -7,6 +8,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { streamSSE } from 'hono/streaming';
@@ -2061,6 +2063,121 @@ const ObsOverlayCreateSchema = z.object({
   is_active: z.boolean().default(true),
 });
 
+const cloudStreamKeySchema = z.object({
+  youtubeStreamKey: z.string().trim().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/),
+});
+
+app.get('/api/admin/cloud-stream/config', async (c) => {
+  const auth = requireRoles(c, ['ADMIN', 'MEDIA']);
+  if (auth instanceof Response) return auth;
+  const result = await pool.query("SELECT key, value_json, updated_at FROM site_settings WHERE key IN ('cloud_stream_config', 'cloud_stream_status')");
+  const config = result.rows.find((row) => row.key === 'cloud_stream_config')?.value_json || {};
+  const status = result.rows.find((row) => row.key === 'cloud_stream_status');
+  const engine = status && Date.now() - new Date(status.updated_at).getTime() < 15000 ? status.value_json : null;
+  const ingestHost = process.env.CLOUD_STREAM_TAILSCALE_IP || '';
+  const octets = ingestHost.split('.').map(Number);
+  const validHost = octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
+  const ingestUser = process.env.CLOUD_STREAM_INGEST_USER || '';
+  return c.json({ success: true, configured: Boolean(config.youtube_key_encrypted), desired: config.desired === true, audioConfigured: Boolean(config.audio_filename && process.env.CLOUD_STREAM_DATA_DIR && fs.existsSync(path.join(process.env.CLOUD_STREAM_DATA_DIR, 'fallback.wav'))), engine: engine?.state || 'unavailable', obs: engine?.obs === true, ingestHost: validHost ? ingestHost : '', ingestUser: /^[A-Za-z0-9_-]{3,64}$/.test(ingestUser) ? ingestUser : '' });
+});
+
+app.put('/api/admin/cloud-stream/config', async (c) => {
+  const auth = requireRoles(c, ['ADMIN', 'MEDIA']);
+  if (auth instanceof Response) return auth;
+  const masterKey = process.env.CLOUD_STREAM_ENCRYPTION_KEY || '';
+  if (!/^[0-9a-f]{64}$/i.test(masterKey)) return c.json({ success: false, error: 'Penyimpanan kunci siaran belum dikonfigurasi.' }, 503);
+  const body = cloudStreamKeySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!body.success) return c.json({ success: false, error: 'Kunci siaran tidak valid.' }, 400);
+  const encrypted = sealCloudSecret(body.data.youtubeStreamKey, masterKey);
+  await pool.query(
+    `INSERT INTO site_settings (key, value_json) VALUES ('cloud_stream_config', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET value_json = site_settings.value_json || EXCLUDED.value_json, updated_at = NOW()`,
+    [JSON.stringify({ youtube_key_encrypted: encrypted })],
+  );
+  return c.json({ success: true, configured: true });
+});
+
+app.put('/api/admin/cloud-stream/state', async (c) => {
+  const auth = requireRoles(c, ['ADMIN', 'MEDIA']);
+  if (auth instanceof Response) return auth;
+  const parsed = z.object({ desired: z.boolean() }).strict().safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ success: false, error: 'Status siaran tidak valid.' }, 400);
+  const result = await pool.query("SELECT value_json FROM site_settings WHERE key = 'cloud_stream_config'");
+  if (parsed.data.desired && !result.rows[0]?.value_json?.youtube_key_encrypted) {
+    return c.json({ success: false, error: 'Simpan kunci YouTube terlebih dahulu.' }, 400);
+  }
+  if (parsed.data.desired) {
+    const worker = await pool.query("SELECT 1 FROM site_settings WHERE key = 'cloud_stream_status' AND updated_at > NOW() - INTERVAL '15 seconds'");
+    if (!worker.rowCount) return c.json({ success: false, error: 'Mesin siaran belum tersedia.' }, 503);
+  }
+  await pool.query(
+    `INSERT INTO site_settings (key, value_json) VALUES ('cloud_stream_config', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET value_json = site_settings.value_json || EXCLUDED.value_json, updated_at = NOW()`,
+    [JSON.stringify({ desired: parsed.data.desired })],
+  );
+  return c.json({ success: true, desired: parsed.data.desired });
+});
+
+function isPlayablePcmWav(data: Buffer): boolean {
+  if (data.length < 44 || data.toString('ascii', 0, 4) !== 'RIFF' || data.toString('ascii', 8, 12) !== 'WAVE') return false;
+  const end = data.readUInt32LE(4) + 8;
+  if (end > data.length || end < 44) return false;
+  let formatOk = false;
+  let hasSamples = false;
+  for (let offset = 12; offset + 8 <= end;) {
+    const name = data.toString('ascii', offset, offset + 4);
+    const size = data.readUInt32LE(offset + 4);
+    const start = offset + 8;
+    if (size > end - start) return false;
+    if (name === 'fmt ' && size >= 16) {
+      const encoding = data.readUInt16LE(start);
+      const channels = data.readUInt16LE(start + 2);
+      const rate = data.readUInt32LE(start + 4);
+      const alignment = data.readUInt16LE(start + 12);
+      const bits = data.readUInt16LE(start + 14);
+      formatOk = (encoding === 1 || encoding === 3) && channels >= 1 && channels <= 2 && rate >= 8000 && rate <= 192000 && alignment > 0 && alignment <= 16 && [8, 16, 24, 32].includes(bits);
+    }
+    if (name === 'data' && size > 0) hasSamples = true;
+    offset = start + size + (size % 2);
+  }
+  return formatOk && hasSamples;
+}
+
+app.use('/api/admin/cloud-stream/audio', bodyLimit({ maxSize: 32 * 1024 * 1024, onError: (c) => c.json({ success: false, error: 'Audio maksimal 32 MB.' }, 413) }));
+app.post('/api/admin/cloud-stream/audio', async (c) => {
+  const auth = requireRoles(c, ['ADMIN', 'MEDIA']);
+  if (auth instanceof Response) return auth;
+  const current = await pool.query("SELECT value_json FROM site_settings WHERE key = 'cloud_stream_config'");
+  if (current.rows[0]?.value_json?.desired === true) {
+    return c.json({ success: false, error: 'Hentikan siaran sebelum mengganti audio cadangan.' }, 409);
+  }
+  const directory = process.env.CLOUD_STREAM_DATA_DIR;
+  if (!directory) return c.json({ success: false, error: 'Penyimpanan audio siaran belum dikonfigurasi.' }, 503);
+  const form = await c.req.formData().catch(() => null);
+  const audio = form?.get('audio');
+  if (!(audio instanceof File) || audio.size < 44 || audio.size > 31 * 1024 * 1024) {
+    return c.json({ success: false, error: 'Pilih audio WAV yang ukurannya maksimal 31 MB.' }, 400);
+  }
+  const data = Buffer.from(await audio.arrayBuffer());
+  if (!isPlayablePcmWav(data)) {
+    return c.json({ success: false, error: 'Berkas audio harus berformat WAV.' }, 400);
+  }
+  await fs.promises.mkdir(directory, { recursive: true });
+  const temporary = path.join(directory, `.audio-${crypto.randomBytes(12).toString('hex')}.tmp`);
+  try {
+    await fs.promises.writeFile(temporary, data, { mode: 0o600, flag: 'wx' });
+    await fs.promises.rename(temporary, path.join(directory, 'fallback.wav'));
+  } finally {
+    await fs.promises.rm(temporary, { force: true });
+  }
+  await pool.query(
+    `INSERT INTO site_settings (key, value_json) VALUES ('cloud_stream_config', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET value_json = site_settings.value_json || EXCLUDED.value_json, updated_at = NOW()`,
+    [JSON.stringify({ audio_filename: 'fallback.wav', audio_revision: crypto.randomBytes(12).toString('hex') })],
+  );
+  return c.json({ success: true, audioConfigured: true });
+});
+
 app.post('/api/admin/obs-overlays', async (c) => {
   const auth = requireRoles(c, ['ADMIN', 'MEDIA']);
   if (auth instanceof Response) return auth;
@@ -2322,7 +2439,13 @@ function validateProductionConfiguration() {
     console.warn('[AVERSA 44] Local-only production configuration bypass is enabled.');
     return;
   }
-  if (!turnstileEnabled || !process.env.TURNSTILE_SITE_KEY || !process.env.TURNSTILE_SECRET_KEY || /^(1x|2x|3x)0{10}/.test(process.env.TURNSTILE_SITE_KEY) || /^(1x|2x|3x)0{10}/.test(process.env.TURNSTILE_SECRET_KEY)) throw new Error('Live Turnstile keys must be configured in production.');
+  if (!turnstileEnabled) throw new Error('TURNSTILE_ENABLED cannot be disabled in production.');
+  for (const name of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY']) {
+    const value = process.env[name] || '';
+    if (!value.trim()) throw new Error(`${name} is missing from the container environment.`);
+    if (value !== value.trim()) throw new Error(`${name} must not contain leading or trailing whitespace.`);
+    if (/^(1x|2x|3x)0{10}/.test(value)) throw new Error(`${name} must use a live key in production.`);
+  }
   if (!trustedProxies.length || trustedProxies.length !== (process.env.TRUSTED_PROXY_IPS || '').split(',').length) throw new Error('TRUSTED_PROXY_IPS must list the exact proxy peer addresses.');
   if (url.protocol !== 'https:' || isLocal || url.username || url.password) {
     throw new Error('PUBLIC_SITE_URL must be a public HTTPS origin in production.');
