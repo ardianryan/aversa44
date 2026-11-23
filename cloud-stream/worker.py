@@ -66,12 +66,16 @@ def configuration(conn):
     return row[0] if row else {}
 
 
-def obs_connected():
+def path_ready(name):
     try:
-        with urllib.request.urlopen('http://127.0.0.1:9997/v3/paths/get/incoming', timeout=1) as response:
+        with urllib.request.urlopen(f'http://127.0.0.1:9997/v3/paths/get/{name}', timeout=1) as response:
             return bool(json.load(response).get('ready'))
     except (OSError, ValueError, urllib.error.URLError):
         return False
+
+
+def obs_connected():
+    return path_ready('incoming')
 
 
 def progress_reader(pipe):
@@ -90,14 +94,10 @@ def progress_reader(pipe):
         pass
 
 
-def prepare_slate():
-    slate = Path('/tmp/aversa-slate.png')
-    args = ['ffmpeg', '-hide_banner', '-loglevel', 'quiet', '-y', '-i', '/app/background.png', '-i', '/app/logo.png',
-            '-filter_complex', f'[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT}[bg];[1:v]scale={WIDTH // 3}:-1[logo];[bg][logo]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]',
-            '-map', '[v]', '-frames:v', '1', str(slate)]
-    subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=30)
-    return slate
-
+def start_fallback_feeder():
+    args = ['ffmpeg', '-hide_banner', '-loglevel', 'warning', '-re', '-stream_loop', '-1', '-i', '/app/fallback-loop.mp4',
+            '-c', 'copy', '-f', 'rtsp', '-rtsp_transport', 'tcp', 'rtsp://127.0.0.1:8554/fallback']
+    return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def start_output(key, audio, obs):
@@ -107,24 +107,31 @@ def start_output(key, audio, obs):
     # The destination is passed directly, without a shell, and never written to logs.
     testing = os.environ.get('CLOUD_STREAM_TEST_MODE') == '1' and os.environ.get('NODE_ENV') != 'production'
     destination = 'rtmp://127.0.0.1:1935/output' if testing else 'rtmp://127.0.0.1:19444/live2/' + key
-    v_bitrate = 4500 if WIDTH == 1280 else 6000
-    gst = ['gst-launch-1.0', '-q', 'fallbacksrc', 'name=s', 'uri=rtsp://127.0.0.1:8554/incoming', 'fallback-uri=file:///tmp/aversa-slate.png',
+    v_bitrate = 4000 if WIDTH == 1280 else 4800
+    gst = ['gst-launch-1.0', '-q', 'fallbacksrc', 'name=s', 'uri=rtsp://127.0.0.1:8554/incoming', 'fallback-uri=rtsp://127.0.0.1:8554/fallback',
            'immediate-fallback=true', 'restart-on-eos=true', 'retry-timeout=18446744073709551614', 'timeout=2000000000',
-           's.video_0', '!', 'queue', '!', 'videoconvert', '!', 'videoscale', '!', 'videorate', '!',
-           f'video/x-raw,format=I420,width={WIDTH},height={HEIGHT},framerate={FPS}/1', '!',
-           'x264enc', 'tune=zerolatency', 'speed-preset=ultrafast', f'bitrate={v_bitrate}', 'bframes=0', f'key-int-max={FPS * 2}', '!',
+           's.video_0', '!', 'queue', 'max-size-buffers=0', 'max-size-bytes=0', 'max-size-time=2000000000', '!',
+           'videoconvert', '!', 'videoscale', 'add-borders=false', '!', 'videorate', '!',
+           f'video/x-raw,format=I420,width={WIDTH},height={HEIGHT},framerate={FPS}/1,pixel-aspect-ratio=1/1', '!',
+           'x264enc', 'tune=zerolatency', 'speed-preset=ultrafast', f'bitrate={v_bitrate}', 'vbv-buf-capacity=1000', 'bframes=0', f'key-int-max={FPS * 2}', '!',
            'h264parse', 'config-interval=-1', '!', 'mux.',
-           's.audio_0', '!', 'queue', '!', 'audioconvert', '!', 'audioresample', '!', 'audiorate', '!',
-           'audio/x-raw,format=F32LE,rate=48000,channels=2', '!', 'avenc_aac', 'bitrate=128000', '!', 'aacparse', '!', 'mux.',
+           's.audio_0', '!', 'queue', 'max-size-buffers=0', 'max-size-bytes=0', 'max-size-time=3000000000', '!',
+           'audioconvert', '!', 'audioresample', '!', 'audiorate', 'tolerance=40000000', '!',
+           'audio/x-raw,format=F32LE,rate=48000,channels=2', '!', 'avenc_aac', 'bitrate=192000', '!', 'aacparse', '!', 'mux.',
            'mpegtsmux', 'name=mux', '!', 'fdsink', 'fd=1']
     producer = subprocess.Popen(gst, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    args = ['ffmpeg', '-hide_banner', '-loglevel', 'warning', '-nostats', '-progress', 'pipe:2', '-fflags', '+genpts+igndts', '-avoid_negative_ts', 'make_zero', '-i', 'pipe:0']
+    args = ['ffmpeg', '-hide_banner', '-loglevel', 'warning', '-nostats', '-progress', 'pipe:2', '-fflags', '+genpts', '-avoid_negative_ts', 'make_zero', '-i', 'pipe:0']
     if audio:
         args += ['-stream_loop', '-1', '-i', str(DATA / 'fallback.wav')]
         gain = '0' if obs else '1'
         control = r'azmq=bind_address=tcp\\\://127.0.0.1\\\:19999'
-        graph = f'[0:a]aresample=async=1:first_pts=0[live];[1:a]volume@bed=volume={gain},{control}[bed];[live][bed]amix=inputs=2:duration=first:normalize=0:dropout_transition=0[a]'
-        args += ['-filter_complex', graph, '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-bsf:v', r'setts=ts=if(eq(PREV_OUTDTS\,NOPTS)\,TS\,max(TS\,PREV_OUTDTS+90))', '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '128k']
+        graph = (
+            '[0:a]aresample=async=1000:min_hard_comp=0.100000:first_pts=0,'
+            'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[live];'
+            f'[1:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume@bed=volume={gain},{control}[bed];'
+            '[live][bed]amix=inputs=2:duration=first:normalize=0:dropout_transition=0[a]'
+        )
+        args += ['-filter_complex', graph, '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-bsf:v', r'setts=ts=if(eq(PREV_OUTDTS\,NOPTS)\,TS\,max(TS\,PREV_OUTDTS+90))', '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '160k']
     else:
         args += ['-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy', '-bsf:v', r'setts=ts=if(eq(PREV_OUTDTS\,NOPTS)\,TS\,max(TS\,PREV_OUTDTS+90))', '-c:a', 'copy', '-bsf:a', 'aac_adtstoasc']
     args += ['-f', 'flv'] + ([] if testing else ['-rtmp_tcurl', 'rtmps://a.rtmps.youtube.com:443/live2']) + [destination]
@@ -167,7 +174,6 @@ def main():
     if INGEST_USER == 'any' or not re.fullmatch(r'[A-Za-z0-9_-]{3,64}', INGEST_USER) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', INGEST_PASSWORD):
         raise ValueError('Cloud ingest credentials are missing or invalid')
     DATA.mkdir(parents=True, exist_ok=True)
-    slate = prepare_slate()
     fd, config_path = tempfile.mkstemp(prefix='aversa-mediamtx-', suffix='.json')
     os.close(fd)
     config_file = Path(config_path)
@@ -184,6 +190,12 @@ def main():
         tls_file.chmod(0o600)
         tunnel = subprocess.Popen(['stunnel', str(tls_file)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     mtx = subprocess.Popen(['mediamtx', str(config_file)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.6)
+    fallback_feeder = start_fallback_feeder()
+    for _ in range(20):
+        if path_ready('fallback'):
+            break
+        time.sleep(0.25)
     producer = consumer = None
     running_revision = None
     retry_at = 0.0
@@ -194,6 +206,8 @@ def main():
         while not stop:
             if mtx.poll() is not None or (tunnel and tunnel.poll() is not None):
                 raise RuntimeError('Media ingest or secure transport process stopped')
+            if fallback_feeder.poll() is not None:
+                fallback_feeder = start_fallback_feeder()
             try:
                 if conn is None or conn.closed:
                     conn = database()
@@ -246,11 +260,10 @@ def main():
                 conn = None
             time.sleep(1)
     finally:
-        terminate(consumer); terminate(producer); terminate(mtx); terminate(tunnel)
+        terminate(consumer); terminate(producer); terminate(fallback_feeder); terminate(mtx); terminate(tunnel)
         config_file.unlink(missing_ok=True)
         if tls_file:
             tls_file.unlink(missing_ok=True)
-        slate.unlink(missing_ok=True)
         if conn:
             conn.close()
 

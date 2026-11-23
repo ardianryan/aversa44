@@ -4,6 +4,14 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.1 - 2026-11-23
+
+- Replace the static fallback slate with an animated 1080p looping video (Anime.js timeline plus canvas stardust, aurora and orbital ring effects) served to the stream engine over an internal RTSP loop.
+- Force square pixels (`pixel-aspect-ratio=1/1`) in the stream pipeline so YouTube receives a true 16:9 frame instead of a pillarboxed, squeezed picture.
+- Fix choppy and distorted audio by keeping source timestamps, using gentler resampling, larger queues, and normalising the fallback WAV to 48 kHz stereo before mixing.
+- Lower the default 1080p bitrate to 4800 kbps for steadier delivery on small VPS instances.
+- Show the Official Media Partner label and logo side by side in OBS overlays and enlarge overlay text and sponsor logos for 1080p legibility.
+
 ## 0.2.0 - 2026-11-23
 
 - Add cloud live streaming worker (`aversa44-stream`) with single-encode GStreamer and FFmpeg remuxing pipeline, seamless fallback slate, and automatic OBS disconnect/reconnect recovery.

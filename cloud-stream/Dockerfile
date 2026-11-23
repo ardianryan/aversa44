@@ -4,8 +4,7 @@ RUN apk add --no-cache python3 py3-psycopg2 py3-cryptography py3-pyzmq gstreamer
  && apk del curl
 WORKDIR /app
 COPY cloud-stream/worker.py /app/worker.py
-COPY public/assets/backgrounds/bg-imperial-velvet-stardust.png /app/background.png
-COPY public/assets/png/aversa-brand-combination.png /app/logo.png
+COPY cloud-stream/fallback-loop.mp4 /app/fallback-loop.mp4
 RUN addgroup -S -g 1000 stream && adduser -S -u 1000 -G stream stream && mkdir -p /data && chown stream:stream /data
 USER stream
 EXPOSE 1935/tcp 8890/udp
