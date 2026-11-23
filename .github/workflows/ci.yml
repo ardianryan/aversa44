@@ -1,0 +1,59 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: aversa44_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      PORT: 4400
+      PUBLIC_SITE_URL: http://localhost:4400
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: test-password
+      PGDATABASE: aversa44_test
+      NODE_ENV: development
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - name: Check forbidden punctuation
+        run: '! grep -rn "—" src/ index.html'
+      - run: npm run build
+      - name: Start server and run integration tests
+        run: |
+          node dist/server/index.js > /tmp/aversa-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:4400/api/health > /dev/null; then break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then cat /tmp/aversa-server.log; exit 1; fi
+            sleep 2
+          done
+          curl --fail --silent http://localhost:4400/api/health > /dev/null
+          npm run verify:e2e
+      - name: Build container image
+        run: docker build --tag aversa44:ci .

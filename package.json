@@ -1,0 +1,60 @@
+{
+  "name": "aversa44",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Website Resmi Dies Natalis ke-44 SMA Negeri 1 Gedeg AVERSA — E-Ticketing, Official Merch Store, Gate QR Scanner & 3D Stage",
+  "scripts": {
+    "dev": "concurrently \"npx tsx watch src/server/index.ts\" \"npx vite\"",
+    "dev:server": "npx tsx watch src/server/index.ts",
+    "dev:client": "npx vite",
+    "build": "tsc -p tsconfig.json --noEmit && npm run build:client && npm run build:server",
+    "start": "node dist/server/index.js",
+    "verify:e2e": "npx tsx scripts/verify-e2e.ts",
+    "build:client": "vite build",
+    "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/index.js"
+  },
+  "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
+    "@hono/node-server": "^2.1.11",
+    "animejs": "^4.5.0",
+    "dotenv": "^18.0.10",
+    "gsap": "^3.15.1",
+    "heic2any": "^0.0.4",
+    "hono": "^4.6.16",
+    "jsqr": "^1.4.0",
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.187.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.11.10",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "esbuild": "^0.28.2",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ardianryan/aversa44.git"
+  },
+  "author": "Ryan Ardian",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "license": "MIT"
+}

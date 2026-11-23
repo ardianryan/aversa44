@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 140" preserveAspectRatio="none">
+  <defs>
+    <linearGradient id="velvet" x2="0" y2="1"><stop stop-color="#360538"/><stop offset=".45" stop-color="#7D1B05"/><stop offset="1" stop-color="#310603"/></linearGradient>
+    <linearGradient id="gold" x2="0" y2="1"><stop stop-color="#FDF39D"/><stop offset=".5" stop-color="#F5C538"/><stop offset="1" stop-color="#E09D17"/></linearGradient>
+  </defs>
+  <rect width="1440" height="12" fill="url(#gold)"/>
+  <path d="M0 12H1440V45 Q1296 130 1152 43 Q1008 130 864 43 Q720 130 576 43 Q432 130 288 43 Q144 130 0 45Z" fill="url(#velvet)"/>
+  <path d="M0 45 Q144 130 288 43 Q432 130 576 43 Q720 130 864 43 Q1008 130 1152 43 Q1296 130 1440 45" fill="none" stroke="url(#gold)" stroke-width="6"/>
+  <path d="M20 14 Q144 100 268 14 M308 14 Q432 100 556 14 M596 14 Q720 100 844 14 M884 14 Q1008 100 1132 14 M1172 14 Q1296 100 1420 14" fill="none" stroke="#F5B8CB" stroke-opacity=".24" stroke-width="3"/>
+  <g fill="#F5C538" stroke="#310603" stroke-width="3"><circle cx="288" cy="43" r="9"/><circle cx="576" cy="43" r="9"/><circle cx="864" cy="43" r="9"/><circle cx="1152" cy="43" r="9"/></g>
+</svg>

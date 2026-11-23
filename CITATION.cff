@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using these metadata."
+title: "AVERSA 44"
+type: software
+authors:
+  - name: Ryan Ardian
+repository-code: https://github.com/ardianryan/aversa44
+license: MIT
+version: 0.1.0
+date-released: 2026-11-23

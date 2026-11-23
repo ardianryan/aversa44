@@ -1,0 +1,26 @@
+{
+  "name": "Dies Natalis ke-44 SMAN 1 Gedeg - AVERSA",
+  "short_name": "AVERSA 44",
+  "description": "Platform Resmi E-Ticketing dan Merchandise Store Dies Natalis ke-44 SMA Negeri 1 Gedeg.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a021d",
+  "theme_color": "#360538",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ]
+}
