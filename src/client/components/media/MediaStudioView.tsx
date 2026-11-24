@@ -180,6 +180,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const loadedImagesRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('4:5');
   const [template, setTemplate] = useState<AversaTemplate>('guest_star');
@@ -192,6 +193,34 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
 
   const [photos, setPhotos] = useState<StudioPhotoItem[]>([]);
   const [videoClip, setVideoClip] = useState<VideoClipState | null>(null);
+
+  const captureVideoPoster = useCallback((video: HTMLVideoElement) => {
+    if (!video.videoWidth || !video.videoHeight) return;
+    const offscreen = document.createElement('canvas');
+    const maxDim = 720;
+    const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
+    offscreen.width = Math.max(1, Math.round(video.videoWidth * scale));
+    offscreen.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const octx = offscreen.getContext('2d');
+    if (octx) {
+      octx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
+      try {
+        const dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
+        setVideoClip((prev) => {
+          if (!prev) return null;
+          if (prev.posterDataUrl === dataUrl && prev.width === video.videoWidth && prev.height === video.videoHeight) return prev;
+          return {
+            ...prev,
+            width: video.videoWidth,
+            height: video.videoHeight,
+            posterDataUrl: dataUrl,
+          };
+        });
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
   const [selectedTimelineId, setSelectedTimelineId] = useState<number>(mediaData.timeline[0]?.id || 0);
   const [promoTarget, setPromoTarget] = useState<string>(
     mediaData.ticketTiers[0]
@@ -308,7 +337,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
   };
 
   const timelinePlan = useMemo(() => {
-    const clipDur = videoClip ? Math.max(2, videoClip.trimEnd - videoClip.trimStart) : 8;
+    const clipDur = videoClip ? Math.max(0.5, videoClip.trimEnd - videoClip.trimStart) : 8;
     return computeMediaTimeline({
       mediaMode,
       photoCount: photos.length || 1,
@@ -374,7 +403,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         ctx.clip();
 
         if (mediaMode === 'video' && videoElRef.current && videoElRef.current.readyState >= 2) {
-          drawCoverImage(ctx, videoElRef.current, mediaX, mediaTop, mediaW, mediaH);
+          drawCoverImage(ctx, videoElRef.current, mediaX, mediaTop, mediaW, mediaH, videoClip?.framing);
         } else if (mediaMode === 'photo' && photos.length > 0) {
           if (isAnimated) {
             const slideState = computePhotoSlideState(
@@ -841,9 +870,13 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       setVideoClip({
         objectUrl: prep.objectUrl,
         durationSec: prep.durationSec,
+        width: prep.width,
+        height: prep.height,
         trimStart: 0,
-        trimEnd: Math.min(prep.durationSec, 10),
-        mutedOriginal: true,
+        trimEnd: prep.durationSec,
+        mutedOriginal: false,
+        framing: { zoom: 1, panX: 0, panY: 0 },
+        posterDataUrl: '',
       });
       setMediaMode('video');
     } catch (err: any) {
@@ -888,18 +921,76 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
     let recorder: MediaRecorder | null = null;
     let raf = 0;
     let cancelled = false;
+    let videoGainNode: GainNode | null = null;
     try {
       const totalSec = timelinePlan.totalDurationSec;
-      if (includeSfx) {
-        audioCtx = new AudioContext();
-        await audioCtx.resume();
-        const destination = record ? audioCtx.createMediaStreamDestination() : null;
-        const slideTimes = photos.length > 1 ? Array.from({ length: photos.length - 1 }, (_, i) => timelinePlan.mainStartSec + timelinePlan.mainHoldSec * (i + 1) / photos.length - 0.4) : [];
-        scheduleStudioSfx(audioCtx, destination || audioCtx.destination, [timelinePlan.introSec, timelinePlan.mainTransitionSec, ...(includeOutro ? [timelinePlan.outroStartSec] : [])].map(time => time - CONFECTIONERY_TRANSITION_SEC / 2), CONFECTIONERY_TRANSITION_SEC);
-        scheduleStudioSfx(audioCtx, destination || audioCtx.destination, slideTimes);
-        if (record) { stream = canvas.captureStream(30); destination!.stream.getAudioTracks().forEach((track) => stream!.addTrack(track)); }
+      const needAudio = record || includeSfx || (mediaMode === 'video' && videoClip && !videoClip.mutedOriginal);
+
+      if (needAudio) {
+        if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+          const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+          audioCtxRef.current = new AudioCtxClass();
+        }
+        audioCtx = audioCtxRef.current;
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
       }
-      if (record && !stream) stream = canvas.captureStream(30);
+
+      const destination = record && audioCtx ? audioCtx.createMediaStreamDestination() : null;
+
+      if (includeSfx && audioCtx) {
+        const targetAudio = destination ? destination : audioCtx.destination;
+        const slideTimes = photos.length > 1
+          ? Array.from({ length: photos.length - 1 }, (_, i) => timelinePlan.mainStartSec + timelinePlan.mainHoldSec * (i + 1) / photos.length - 0.4)
+          : [];
+        scheduleStudioSfx(
+          audioCtx,
+          targetAudio,
+          [timelinePlan.introSec, timelinePlan.mainTransitionSec, ...(includeOutro ? [timelinePlan.outroStartSec] : [])].map(time => time - CONFECTIONERY_TRANSITION_SEC / 2),
+          CONFECTIONERY_TRANSITION_SEC
+        );
+        scheduleStudioSfx(audioCtx, targetAudio, slideTimes);
+      }
+
+      if (mediaMode === 'video' && videoElRef.current && videoClip && audioCtx) {
+        const videoEl = videoElRef.current;
+        videoEl.currentTime = videoClip.trimStart;
+        videoEl.muted = false;
+        videoEl.volume = 1.0;
+        videoEl.pause();
+
+        try {
+          let sourceNode: MediaElementAudioSourceNode = (videoEl as any).__audioSourceNode;
+          if (!sourceNode) {
+            sourceNode = audioCtx.createMediaElementSource(videoEl);
+            (videoEl as any).__audioSourceNode = sourceNode;
+          }
+          videoGainNode = audioCtx.createGain();
+          videoGainNode.gain.value = videoClip.mutedOriginal ? 0.0 : 1.0;
+          sourceNode.connect(videoGainNode);
+          if (record && destination) {
+            videoGainNode.connect(destination);
+          } else if (!record) {
+            videoGainNode.connect(audioCtx.destination);
+          }
+        } catch (err) {
+          console.warn('Audio node connect notice:', err);
+        }
+      } else if (mediaMode === 'video' && videoElRef.current && videoClip) {
+        videoElRef.current.currentTime = videoClip.trimStart;
+        videoElRef.current.muted = true;
+        videoElRef.current.pause();
+      }
+
+      if (record) {
+        stream = canvas.captureStream(30);
+        if (destination) {
+          destination.stream.getAudioTracks().forEach((track) => {
+            stream!.addTrack(track);
+          });
+        }
+      }
       let mimeType = '';
       const chunks: Blob[] = [];
       let done: Promise<void> | null = null;
@@ -909,11 +1000,6 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
         recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
         done = new Promise((resolve, reject) => { recorder!.onstop = () => resolve(); recorder!.onerror = () => reject(new Error('Perekaman video gagal.')); });
-      }
-      if (mediaMode === 'video' && videoElRef.current && videoClip) {
-        videoElRef.current.currentTime = videoClip.trimStart;
-        videoElRef.current.muted = true;
-        videoElRef.current.pause();
       }
       drawStudioFrame(ctx, w, h, 0, true);
       recorder?.start(200);
@@ -925,7 +1011,12 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
           const elapsed = Math.min(totalSec, (now - started) / 1000);
           if (mediaMode === 'video' && videoClip && videoElRef.current && !sourceStarted && elapsed >= timelinePlan.mainStartSec) {
             sourceStarted = true;
-            void videoElRef.current.play().catch(() => onNotify('Video tidak dapat diputar. Coba pratinjau kembali.', true));
+            void videoElRef.current.play().catch(() => {
+              if (videoElRef.current) {
+                videoElRef.current.muted = true;
+                void videoElRef.current.play().catch(() => onNotify('Video tidak dapat diputar. Coba pratinjau kembali.', true));
+              }
+            });
           }
           if (mediaMode === 'video' && videoClip && videoElRef.current && (videoElRef.current.currentTime >= videoClip.trimEnd || elapsed >= timelinePlan.mainStartSec + timelinePlan.mainHoldSec)) {
             videoElRef.current.pause();
@@ -952,9 +1043,14 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
     finally {
       animationBusyRef.current = false;
       previewStopRef.current = null;
-      if (videoElRef.current) videoElRef.current.pause();
+      if (videoGainNode) {
+        try { videoGainNode.disconnect(); } catch {}
+      }
+      if (videoElRef.current) {
+        videoElRef.current.pause();
+        videoElRef.current.muted = true;
+      }
       stream?.getTracks().forEach((track) => track.stop());
-      if (audioCtx) await audioCtx.close().catch(() => {});
       setExportingVideo(false); setPreviewPlaying(false); setRenderProgress(0); setMediaStatus('');
     }
   };
@@ -1201,7 +1297,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
             )}
 
             {mediaMode === 'video' && videoClip && (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <video
                   ref={videoElRef}
                   src={videoClip.objectUrl}
@@ -1209,25 +1305,57 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
                   muted
                   onLoadedData={async (event) => {
                     const video = event.currentTarget;
+                    captureVideoPoster(video);
                     if (animationBusyRef.current) return;
                     try {
-                      await video.play();
-                      await new Promise<void>((resolve) => {
-                        if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(() => resolve());
-                        else setTimeout(resolve, 120);
-                      });
-                      if (videoElRef.current === video && !animationBusyRef.current) {
-                        video.pause();
-                        video.currentTime = 0;
-                        setAssetTick((tick) => tick + 1);
-                      }
-                    } catch {
-                      setAssetTick((tick) => tick + 1);
-                    }
+                      video.currentTime = videoClip.coverTime ?? videoClip.trimStart;
+                    } catch {}
+                    setAssetTick((tick) => tick + 1);
                   }}
-                  onSeeked={() => setAssetTick((tick) => tick + 1)}
+                  onSeeked={(event) => {
+                    captureVideoPoster(event.currentTarget);
+                    setAssetTick((tick) => tick + 1);
+                  }}
                   className="hidden"
                 />
+
+                {videoClip.posterDataUrl && (
+                  <MediaCropBox
+                    src={videoClip.posterDataUrl}
+                    srcWidth={videoClip.width || 1920}
+                    srcHeight={videoClip.height || 1080}
+                    frameWidth={RATIO_DIMS[aspectRatio].w}
+                    frameHeight={RATIO_DIMS[aspectRatio].h}
+                    framing={videoClip.framing || { zoom: 1, panX: 0, panY: 0 }}
+                    label="Video"
+                    onChange={(nextFraming) =>
+                      setVideoClip((prev) => (prev ? { ...prev, framing: nextFraming } : null))
+                    }
+                  />
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-[#F5C538]/30 bg-[#18021B]">
+                  <div>
+                    <strong className="block text-sm text-[#FDF39D]">Audio Video Asli</strong>
+                    <span className="text-xs text-[#FFF5D6]/80">
+                      {!videoClip.mutedOriginal
+                        ? 'Suara asli video aktif di pratinjau dan ekspor MP4'
+                        : 'Video dibisukan'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setVideoClip((prev) => (prev ? { ...prev, mutedOriginal: !prev.mutedOriginal } : null))}
+                    className={`min-h-[44px] px-4 rounded-xl border text-xs font-bold transition-colors ${
+                      !videoClip.mutedOriginal
+                        ? 'border-[#A0D9CA] bg-[#A0D9CA]/15 text-[#A0D9CA]'
+                        : 'border-[#F5B8CB]/40 bg-[#140117] text-[#F5B8CB]'
+                    }`}
+                  >
+                    {!videoClip.mutedOriginal ? '🔊 Suara Aktif' : '🔇 Bisu'}
+                  </button>
+                </div>
+
                 <VideoTrimmerControl clip={videoClip} onChange={setVideoClip} />
                 <button
                   type="button"

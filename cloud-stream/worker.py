@@ -107,13 +107,14 @@ def start_output(key, audio, obs):
     # The destination is passed directly, without a shell, and never written to logs.
     testing = os.environ.get('CLOUD_STREAM_TEST_MODE') == '1' and os.environ.get('NODE_ENV') != 'production'
     destination = 'rtmp://127.0.0.1:1935/output' if testing else 'rtmp://127.0.0.1:19444/live2/' + key
-    v_bitrate = 4000 if WIDTH == 1280 else 4800
+    v_bitrate = int(os.environ.get('CLOUD_STREAM_BITRATE', '4500' if WIDTH == 1280 else '6500'))
+    fallback_timeout_ns = int(float(os.environ.get('CLOUD_STREAM_FALLBACK_DELAY_SEC', '2')) * 1_000_000_000)
     gst = ['gst-launch-1.0', '-q', 'fallbacksrc', 'name=s', 'uri=rtsp://127.0.0.1:8554/incoming', 'fallback-uri=rtsp://127.0.0.1:8554/fallback',
-           'immediate-fallback=true', 'restart-on-eos=true', 'retry-timeout=18446744073709551614', 'timeout=2000000000',
+           'immediate-fallback=true', 'restart-on-eos=true', 'retry-timeout=18446744073709551614', f'timeout={fallback_timeout_ns}',
            's.video_0', '!', 'queue', 'max-size-buffers=0', 'max-size-bytes=0', 'max-size-time=2000000000', '!',
            'videoconvert', '!', 'videoscale', 'add-borders=false', '!', 'videorate', '!',
            f'video/x-raw,format=I420,width={WIDTH},height={HEIGHT},framerate={FPS}/1,pixel-aspect-ratio=1/1', '!',
-           'x264enc', 'tune=zerolatency', 'speed-preset=ultrafast', f'bitrate={v_bitrate}', 'vbv-buf-capacity=1000', 'bframes=0', f'key-int-max={FPS * 2}', '!',
+           'x264enc', 'tune=zerolatency', 'speed-preset=ultrafast', f'bitrate={v_bitrate}', 'threads=0', 'vbv-buf-capacity=2000', 'bframes=0', f'key-int-max={FPS * 2}', '!',
            'h264parse', 'config-interval=-1', '!', 'mux.',
            's.audio_0', '!', 'queue', 'max-size-buffers=0', 'max-size-bytes=0', 'max-size-time=3000000000', '!',
            'audioconvert', '!', 'audioresample', '!', 'audiorate', 'tolerance=40000000', '!',
@@ -126,14 +127,14 @@ def start_output(key, audio, obs):
         gain = '0' if obs else '1'
         control = r'azmq=bind_address=tcp\\\://127.0.0.1\\\:19999'
         graph = (
-            '[0:a]aresample=async=1000:min_hard_comp=0.100000:first_pts=0,'
+            '[0:a]aresample=async=1:first_pts=0,'
             'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[live];'
             f'[1:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume@bed=volume={gain},{control}[bed];'
             '[live][bed]amix=inputs=2:duration=first:normalize=0:dropout_transition=0[a]'
         )
-        args += ['-filter_complex', graph, '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-bsf:v', r'setts=ts=if(eq(PREV_OUTDTS\,NOPTS)\,TS\,max(TS\,PREV_OUTDTS+90))', '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '160k']
+        args += ['-filter_complex', graph, '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-bsf:v', r'setts=ts=if(eq(PREV_OUTDTS\,NOPTS)\,TS\,max(TS\,PREV_OUTDTS+1))', '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '160k']
     else:
-        args += ['-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy', '-bsf:v', r'setts=ts=if(eq(PREV_OUTDTS\,NOPTS)\,TS\,max(TS\,PREV_OUTDTS+90))', '-c:a', 'copy', '-bsf:a', 'aac_adtstoasc']
+        args += ['-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy', '-bsf:v', r'setts=ts=if(eq(PREV_OUTDTS\,NOPTS)\,TS\,max(TS\,PREV_OUTDTS+1))', '-c:a', 'copy', '-bsf:a', 'aac_adtstoasc']
     args += ['-f', 'flv'] + ([] if testing else ['-rtmp_tcurl', 'rtmps://a.rtmps.youtube.com:443/live2']) + [destination]
     try:
         consumer = subprocess.Popen(args, stdin=producer.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)

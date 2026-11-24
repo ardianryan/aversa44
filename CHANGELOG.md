@@ -4,7 +4,15 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
-## 0.2.1 - 2026-11-23
+## 0.2.2 - 2026-11-24
+
+- Media Studio: Enable full cross-device video & photo support, including iPhone HEIC image decoding and H.264 (yuv420p) + AAC audio + faststart MP4 export for seamless QuickTime and iOS Safari playback.
+- Media Studio: Restore video audio playback in both live canvas preview and exported MP4 files, with an instant mute/unmute toggle control.
+- Media Studio: Unlock video duration limits (supporting clips from 0.5 seconds up to 30 minutes) without forced 10-second truncation.
+- Media Studio: Add interactive video cropping, panning, and zoom via MediaCropBox with automatic poster frame extraction.
+- Cloud Streaming: Fix YouTube "not receiving enough video" stream health warnings by correcting FLV timestamp pacing (setts monotonic advance) and enabling multi-threaded x264enc encoding.
+- Cloud Streaming: Clean up audio resampling to prevent distortion and clicks during live OBS broadcasts.
+- OBS Overlay: Enforce persistent horizontal layout for Official Media Partner brand pill across all viewport widths and enlarge sponsor typography for 1080p broadcasts.
 
 - Replace the static fallback slate with an animated 1080p looping video (Anime.js timeline plus canvas stardust, aurora and orbital ring effects) served to the stream engine over an internal RTSP loop.
 - Force square pixels (`pixel-aspect-ratio=1/1`) in the stream pipeline so YouTube receives a true 16:9 frame instead of a pillarboxed, squeezed picture.

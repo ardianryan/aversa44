@@ -2,9 +2,9 @@ export type StudioMediaMode = 'photo' | 'video';
 
 export const MAX_STUDIO_PHOTOS = 3;
 export const STUDIO_TRANSITION_SEC = 2.2;
-export const MIN_VIDEO_CLIP_SEC = 2.0;
-export const MAX_VIDEO_CLIP_SEC = 20.0;
-export const DEFAULT_VIDEO_CLIP_SEC = 10.0;
+export const MIN_VIDEO_CLIP_SEC = 0.5;
+export const MAX_VIDEO_CLIP_SEC = 1800.0;
+export const DEFAULT_VIDEO_CLIP_SEC = 15.0;
 
 export interface MediaTimelinePlan {
   introSec: number;

@@ -1,9 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ResponsiveSheet } from '../ui/ResponsiveSheet.tsx';
 import { clampTrimWindow, MAX_VIDEO_CLIP_SEC } from '../../../shared/media-timeline.ts';
+import { type MediaFraming } from '../../../shared/media-framing.ts';
 
 export interface VideoClipState {
-  objectUrl: string; durationSec: number; trimStart: number; trimEnd: number; mutedOriginal: boolean; coverTime?: number;
+  objectUrl: string;
+  durationSec: number;
+  trimStart: number;
+  trimEnd: number;
+  mutedOriginal: boolean;
+  coverTime?: number;
+  width?: number;
+  height?: number;
+  framing?: MediaFraming;
+  posterDataUrl?: string;
 }
 interface VideoTrimmerControlProps { clip: VideoClipState; onChange: (next: VideoClipState) => void; }
 type DragMode = 'start' | 'end' | 'window' | 'scrub';
@@ -72,7 +82,7 @@ export const VideoTrimmerControl: React.FC<VideoTrimmerControlProps> = ({clip,on
         {thumbError&&<p className="text-sm text-[#F5B8CB]">Sebagian thumbnail belum dapat dibaca. Video dan pemilihan rentang tetap dapat digunakan.</p>}
         <label className="block text-sm text-[#FFF5D6]">Lihat posisi video<input type="range" min={0} max={duration} step={0.1} value={time} onChange={e=>seek(Number(e.target.value))} className="block min-h-[44px] w-full accent-[#F5C538]" /></label>
         <button type="button" onClick={()=>onChange({...clip,coverTime:Math.min(clip.trimEnd,Math.max(clip.trimStart,time))})} className="min-h-[44px] rounded-lg border border-[#F5C538]/40 px-4 text-sm font-bold text-[#FDF39D]">Jadikan sampul ({formatTime(Math.min(clip.trimEnd,Math.max(clip.trimStart,time)))})</button>
-        <p className="text-sm text-[#FFF5D6]">Maksimal {MAX_VIDEO_CLIP_SEC} detik. Audio asli tidak disertakan. Sampul dipakai untuk poster PNG; video dimulai dari awal potongan.</p>
+        <p className="text-sm text-[#FFF5D6]">Rentang video bebas hingga {Math.round(MAX_VIDEO_CLIP_SEC / 60)} menit. Audio asli video dapat diaktifkan atau dibisukan sesuai kebutuhan. Sampul dipakai untuk poster PNG; video dimulai dari awal potongan.</p>
         <button type="button" onClick={close} className="min-h-[44px] w-full rounded-xl bg-[#F5C538] px-4 font-bold text-[#310603]">Selesai</button>
       </div>
     </ResponsiveSheet>
