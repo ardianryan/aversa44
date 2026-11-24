@@ -4,6 +4,11 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.8 - 2026-11-24
+
+- Media Studio: Anchor the sponsor and Official Media Partner credits strip near the bottom edge (~3% margin) across all aspect ratios so the center subject and main copy stay clear.
+- OBS Broadcast Overlay: Unify all camera presets (`full_frame`, `lower_third`, `corner_bug`, `guest_spotlight`, `rundown_schedule`, `sponsor_wall`) under a consistent Broadcast TV layout with a persistent top header (school identity left, horizontal Official Media Partner right), sleek dark-plum glass panels, and a slim 1-row rotating sponsor strip at the bottom.
+
 ## 0.2.7 - 2026-11-24
 
 - Media Studio: Use rounded cream pill containers (`#FFF5D6` with subtle gold border) and cleaner spacing/padding around boxed sponsor logos in the canvas credits strip.

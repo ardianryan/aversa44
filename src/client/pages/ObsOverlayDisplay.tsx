@@ -173,15 +173,20 @@ export const ObsOverlayDisplay: React.FC = () => {
   const motionOff = reducedMotion || overlay.transition_preset === 'cut';
 
   const panelStyle = isLight
-    ? 'bg-[#FFF5D6]/95 border-[#E09D17] text-[#310603]'
-    : 'bg-gradient-to-r from-[#1A021D]/95 via-[#360538]/95 to-[#310603]/95 border-[#F5C538] text-[#FFF5D6]';
+    ? 'bg-[#FFF5D6]/92 border-[#E09D17]/80 text-[#310603] backdrop-blur-md'
+    : 'bg-[#18021B]/88 border-[#F5C538]/45 text-[#FFF5D6] backdrop-blur-md';
 
   const transitionAnimClass = overlay.transition_preset === 'cut' ? 'obs-enter-cut' : '';
   const reveal = (text: string, centered = false) => <SplitText key={text} text={text} className={centered ? 'justify-center' : ''} delayMs={120} staggerMs={35} reducedMotion={reducedMotion || overlay.transition_preset === 'cut'} />;
   const rankedSponsors = [...sponsors].filter(sp => sp.is_active).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+  const perPage = 4;
+  const sponsorPageCount = Math.max(1, Math.ceil(rankedSponsors.length / perPage));
+  const sponsorPage = Math.floor(sponsorSwap.value / 2) % sponsorPageCount;
+  const visibleRowSponsors = rankedSponsors.slice(sponsorPage * perPage, sponsorPage * perPage + perPage);
   const supporting = rankedSponsors.slice(3);
   const supportingPage = Math.floor(sponsorSwap.value / 2) % Math.max(1, Math.ceil(supporting.length / 6));
   const visibleSponsors = supporting.slice(supportingPage * 6, supportingPage * 6 + 6);
+
   const frame = (children: React.ReactNode, className = '') => (
     <StarBorder disabled={reducedMotion || overlay.transition_preset === 'cut'} speed="8s" className={`obs-frame ${className}`}>
       <SceneMotion disabled={motionOff} className={`obs-panel ${panelStyle}`}>{children}</SceneMotion>
@@ -197,88 +202,141 @@ export const ObsOverlayDisplay: React.FC = () => {
         src={src}
         alt={sp.name}
         className={`${heightClass} max-w-full w-auto object-contain ${
-          needsBox ? 'rounded-md bg-[#FFF5D6] px-2 py-0.5' : ''
+          needsBox ? 'rounded-lg bg-[#FFF5D6] px-2.5 py-1 shadow-sm' : ''
         }`}
       />
     );
   };
 
   const hasCredits = Boolean(eventMeta.officialMediaPartner) || (overlay.show_sponsors && rankedSponsors.length > 0);
+  const hasSponsors = overlay.show_sponsors && rankedSponsors.length > 0;
+  const isCameraPreset = overlay.layout_preset !== 'standby_soon';
+
+  const renderSponsorBar = (includePartner = false) => (
+    <div className="obs-sponsor-bar">
+      {hasSponsors && (
+        <div className="obs-sponsor-bar-main">
+          <span className="obs-sponsor-bar-label">Didukung oleh</span>
+          <div key={sponsorPage} className={`obs-sponsor-bar-logos ${sponsorSwap.leaving ? 'obs-logos-leaving' : ''}`}>
+            {visibleRowSponsors.map((sp, idx) => (
+              <AnimatedContent
+                key={sp.id}
+                trigger="mount"
+                duration={0.65}
+                distance={motionOff ? 0 : 12}
+                delay={motionOff ? 0 : idx * 0.06}
+                animateOpacity={!motionOff}
+              >
+                <div className="obs-sponsor-bar-item">{renderSponsorLogo(sp, 'obs-bar-logo')}</div>
+              </AnimatedContent>
+            ))}
+          </div>
+        </div>
+      )}
+      {includePartner && eventMeta.officialMediaPartner && (
+        <div className="obs-official-partner">
+          <span className="obs-sponsor-bar-label">Official Media Partner</span>
+          <img src={eventMeta.officialMediaPartner} alt="Official Media Partner" />
+        </div>
+      )}
+    </div>
+  );
+
   const renderCredits = (includePartner = true) => <div className="obs-credits">
-    {overlay.show_sponsors && rankedSponsors.length > 0 && <div className="obs-credit-sponsors"><p className="obs-credit-label">Didukung oleh</p><div className="obs-primary-sponsors">{rankedSponsors.slice(0, 3).map(sp => <div key={sp.id}>{renderSponsorLogo(sp, 'obs-primary-logo')}</div>)}</div>{visibleSponsors.length > 0 && <div key={supportingPage} className={`obs-supporting-sponsors ${sponsorSwap.leaving ? 'obs-logos-leaving' : ''}`}>{visibleSponsors.map(sp => <AnimatedContent key={sp.id} trigger="mount" duration={0.8} distance={motionOff ? 0 : 16} delay={motionOff ? 0 : visibleSponsors.indexOf(sp) * 0.07} animateOpacity={!motionOff}>{renderSponsorLogo(sp, 'obs-supporting-logo')}</AnimatedContent>)}</div>}</div>}
+    {hasSponsors && <div className="obs-credit-sponsors"><p className="obs-credit-label">Didukung oleh</p><div className="obs-primary-sponsors">{rankedSponsors.slice(0, 3).map(sp => <div key={sp.id}>{renderSponsorLogo(sp, 'obs-primary-logo')}</div>)}</div>{visibleSponsors.length > 0 && <div key={supportingPage} className={`obs-supporting-sponsors ${sponsorSwap.leaving ? 'obs-logos-leaving' : ''}`}>{visibleSponsors.map(sp => <AnimatedContent key={sp.id} trigger="mount" duration={0.8} distance={motionOff ? 0 : 16} delay={motionOff ? 0 : visibleSponsors.indexOf(sp) * 0.07} animateOpacity={!motionOff}>{renderSponsorLogo(sp, 'obs-supporting-logo')}</AnimatedContent>)}</div>}</div>}
     {includePartner && eventMeta.officialMediaPartner && <div className="obs-official-partner"><p className="obs-credit-label">Official Media Partner</p><img src={eventMeta.officialMediaPartner} alt="Official Media Partner" /></div>}
   </div>;
 
   const credits = renderCredits();
 
   return (
-    <div className={`obs-stage ${isLight ? 'obs-light' : ''} ${reducedMotion ? 'obs-still' : ''} ${hasCredits ? 'obs-has-credits' : ''} ${scene.leaving ? 'obs-scene-leaving' : ''}`}  data-layout={overlay.layout_preset}>
-      {overlay.layout_preset !== 'standby_soon' && (
+    <div className={`obs-stage ${isLight ? 'obs-light' : ''} ${reducedMotion ? 'obs-still' : ''} ${hasCredits ? 'obs-has-credits' : ''} ${scene.leaving ? 'obs-scene-leaving' : ''}`} data-layout={overlay.layout_preset}>
+      {isCameraPreset && (
         <div aria-hidden="true" className="obs-edge">
           {['top-0 left-0', 'top-0 right-0 scale-x-[-1]', 'bottom-0 left-0 scale-y-[-1]', 'bottom-0 right-0 scale-[-1]'].map(position => (
-            <img key={position} src="/assets/brandkit/item-ornate-corner-filigree.svg" alt="" className={`absolute w-12 sm:w-20 ${position}`} />
+            <img key={position} src="/assets/brandkit/item-ornate-corner-filigree.svg" alt="" className={`absolute w-10 sm:w-16 opacity-75 ${position}`} />
           ))}
         </div>
       )}
-      {hasCredits && !['standby_soon', 'sponsor_wall', 'full_frame'].includes(overlay.layout_preset) && <div key={`credits-${scene.key}`} className={`obs-shared-credits ${overlay.layout_preset === 'corner_bug' ? 'obs-credits-bottom' : ''}`}>{frame(credits)}</div>}
       <div key={`composition-${scene.key}`} className={`obs-composition ${transitionAnimClass}`}>
-        {overlay.layout_preset === 'full_frame' && <>
+        {isCameraPreset && (
           <div className="obs-full-header">
-            {frame(<div className="obs-full-identity"><img className="obs-full-school" src="/assets/extracted/logo-sman1gedeg.png" alt="SMAN 1 Gedeg" /><span className="obs-full-anniversary"><img src="/assets/svg/dies-natalis-44-tight.svg" alt="Lambang Dies Natalis ke-44" /></span><img className="obs-full-wordmark" src="/assets/svg/aversa-wordmark-tight.svg" alt="AVERSA" /></div>, 'obs-full-brand')}
-            {eventMeta.officialMediaPartner && frame(<div className="obs-full-partner"><p>Official Media Partner</p><img src={eventMeta.officialMediaPartner} alt="Official Media Partner" /></div>, 'obs-full-partner-frame')}
+            <div className="obs-header-left">
+              {frame(
+                <div className="obs-full-identity">
+                  <img className="obs-full-school" src="/assets/extracted/logo-sman1gedeg.png" alt="SMAN 1 Gedeg" />
+                  <span className="obs-full-anniversary"><img src="/assets/svg/dies-natalis-44-tight.svg" alt="Lambang Dies Natalis ke-44" /></span>
+                  <img className="obs-full-wordmark" src="/assets/svg/aversa-wordmark-tight.svg" alt="AVERSA" />
+                </div>,
+                'obs-full-brand'
+              )}
+              {overlay.layout_preset === 'corner_bug' && frame(
+                <div className="obs-bug">
+                  <div>
+                    <h1 className="obs-bug-label">{reveal(overlay.corner_bug_text)}</h1>
+                    {overlay.show_countdown && <p data-motion-detail className="obs-subtitle">{countdownText}</p>}
+                  </div>
+                </div>,
+                'obs-bug-pill'
+              )}
+            </div>
+            {eventMeta.officialMediaPartner && frame(
+              <div className="obs-full-partner">
+                <p>Official Media Partner</p>
+                <img src={eventMeta.officialMediaPartner} alt="Official Media Partner" />
+              </div>,
+              'obs-full-partner-frame'
+            )}
           </div>
-          {overlay.show_sponsors && rankedSponsors.length > 0 && <div className="obs-bottom obs-full-sponsors">{frame(renderCredits(false))}</div>}
-        </>}
-        {overlay.layout_preset === 'lower_third' && (
-          <div className="obs-bottom">
-            {frame(<div className="obs-lower-grid">
-              <div className="obs-brand-pair"><img src="/assets/extracted/logo-sman1gedeg.png" alt="SMAN 1 Gedeg" /><img src="/assets/svg/logo-symbol-tight.svg" alt="AVERSA 44" /></div>
-              <div className="obs-copy"><p data-motion-detail className="obs-eyebrow">{overlay.corner_bug_text}</p><h1>{reveal(overlay.lower_third_title)}</h1><p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p></div>
-              <div className="obs-meta">
-                {overlay.show_countdown && <div className="obs-countdown"><span>Puncak acara</span><strong>{countdownText}</strong></div>}
+        )}
+
+        {isCameraPreset && (
+          <div className="obs-bottom-stack">
+            {overlay.layout_preset === 'lower_third' && (
+              frame(<div className="obs-lower-grid">
+                <div className="obs-brand-pair"><img src="/assets/extracted/logo-sman1gedeg.png" alt="SMAN 1 Gedeg" /><img src="/assets/svg/logo-symbol-tight.svg" alt="AVERSA 44" /></div>
+                <div className="obs-copy"><p data-motion-detail className="obs-eyebrow">{overlay.corner_bug_text}</p><h1>{reveal(overlay.lower_third_title)}</h1><p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p></div>
+                <div className="obs-meta">
+                  {overlay.show_countdown && <div className="obs-countdown"><span>Puncak acara</span><strong>{countdownText}</strong></div>}
+                </div>
+              </div>)
+            )}
+            {overlay.layout_preset === 'guest_spotlight' && (
+              frame(<div className="obs-guest-grid">
+                <div className="obs-guest-art" aria-hidden="true"><img src="/assets/extracted/guest-niken-salindry.png" alt="" /><img src="/assets/extracted/guest-kembange-jagad.png" alt="" /></div>
+                <div className="obs-copy"><p data-motion-detail className="obs-eyebrow">Panggung AVERSA 44</p><h1>{reveal(overlay.lower_third_title)}</h1><p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p><p className="obs-detail">{eventMeta.peakDateLabel || '17 Desember 2026'} • {eventMeta.guestStarVenue || 'Lapangan Tengah SMAN 1 Gedeg'}</p></div>
+                <img className="obs-wordmark" src="/assets/png/aversa-logotype-horizontal.png" alt="AVERSA 44" />
+              </div>)
+            )}
+            {overlay.layout_preset === 'rundown_schedule' && (
+              <div className="obs-rundown">
+                {frame(<><div className="obs-heading"><h1>{reveal('Rangkaian Acara')}</h1><img src="/assets/svg/logo-symbol-tight.svg" alt="AVERSA 44" /></div>
+                  <div className="obs-schedule-list">{timeline.length ? timeline.slice(0, 4).map((ev, index) => <div key={ev.id} className="obs-schedule-row" style={{animationDelay: `${180 + index * 110}ms`}}><span className="obs-event-number">{String(index + 1).padStart(2, '0')}</span><div><p data-motion-detail className="obs-subtitle">{ev.date_label}</p><h2>{ev.title}</h2></div></div>) : <p>Rangkaian acara akan diumumkan.</p>}</div>
+                </>)}
               </div>
-            </div>)}
+            )}
+            {overlay.layout_preset === 'sponsor_wall' && (
+              frame(<><div className="obs-heading"><div><p data-motion-detail className="obs-eyebrow">AVERSA 44</p><h1>{reveal('Terima kasih, mitra & sponsor')}</h1></div><img src="/assets/svg/logo-symbol-tight.svg" alt="AVERSA 44" /></div>{hasCredits ? renderCredits(false) : <p>Belum ada logo mitra yang ditampilkan.</p>}</>)
+            )}
+            {overlay.layout_preset !== 'sponsor_wall' && hasSponsors && (
+              <div className="obs-sponsor-strip-wrap">{frame(renderSponsorBar(false), 'obs-sponsor-strip-frame')}</div>
+            )}
           </div>
         )}
-        {overlay.layout_preset === 'corner_bug' && (
-          <div className="obs-topline">
-            {frame(<div className="obs-bug"><img src="/assets/svg/logo-symbol-tight.svg" alt="AVERSA 44" /><div><h1 className="obs-bug-label">{reveal(overlay.corner_bug_text)}</h1>{overlay.show_countdown && <p data-motion-detail className="obs-subtitle">{countdownText}</p>}</div></div>)}
-          </div>
-        )}
-        {overlay.layout_preset === 'guest_spotlight' && (
-          <div className="obs-bottom">
-            {frame(<div className="obs-guest-grid">
-              <div className="obs-guest-art" aria-hidden="true"><img src="/assets/extracted/guest-niken-salindry.png" alt="" /><img src="/assets/extracted/guest-kembange-jagad.png" alt="" /></div>
-              <div className="obs-copy"><p data-motion-detail className="obs-eyebrow">Panggung AVERSA 44</p><h1>{reveal(overlay.lower_third_title)}</h1><p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p><p className="obs-detail">{eventMeta.peakDateLabel || '17 Desember 2026'} • {eventMeta.guestStarVenue || 'Lapangan Tengah SMAN 1 Gedeg'}</p></div>
-              <img className="obs-wordmark" src="/assets/png/aversa-logotype-horizontal.png" alt="AVERSA 44" />
-            </div>)}
-          </div>
-        )}
-        {overlay.layout_preset === 'rundown_schedule' && (
-          <div className="obs-bottom obs-rundown">
-            {frame(<><div className="obs-heading"><h1>{reveal('Rangkaian Acara')}</h1><img src="/assets/svg/logo-symbol-tight.svg" alt="AVERSA 44" /></div>
-              <div className="obs-schedule-list">{timeline.length ? timeline.slice(0, 4).map((ev, index) => <div key={ev.id} className="obs-schedule-row" style={{animationDelay: `${180 + index * 110}ms`}}><span className="obs-event-number">{String(index + 1).padStart(2, '0')}</span><div><p data-motion-detail className="obs-subtitle">{ev.date_label}</p><h2>{ev.title}</h2></div></div>) : <p>Rangkaian acara akan diumumkan.</p>}</div>
-            </>)}
-          </div>
-        )}
+
         {overlay.layout_preset === 'standby_soon' && (
           <div className="obs-standby">
             <VelvetStage reducedMotion={reducedMotion} />
             <img src="/assets/brandkit/aversa-media-curtain.svg" alt="" className="obs-curtain curtain-velvet-sway" />
             <StageOrnaments disabled={motionOff} />
-            {hasCredits && <div className="obs-standby-credits">{credits}</div>}
+            {hasCredits && <div className="obs-standby-credits">{frame(renderSponsorBar(true), 'obs-sponsor-strip-frame')}</div>}
             <SceneMotion disabled={motionOff} className="obs-standby-copy"><img data-motion-detail className="obs-school" src="/assets/extracted/logo-sman1gedeg.png" alt="SMAN 1 Gedeg" /><img data-motion-detail className="obs-main-logo" src="/assets/extracted/aversa-tophat-2026.png" alt="AVERSA 2026" /><p data-motion-detail className="obs-eyebrow">SMA Negeri 1 Gedeg • 1982 - 2026</p><h1>{reveal(overlay.lower_third_title, true)}</h1><p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p>
               {overlay.show_countdown && frame(<div className="obs-countdown"><span>Siaran segera dimulai</span><strong>{countdownText}</strong></div>, 'obs-standby-countdown')}
             </SceneMotion>
           </div>
         )}
-        {overlay.layout_preset === 'sponsor_wall' && (
-          <div className="obs-bottom">
-            {frame(<><div className="obs-heading"><div><p data-motion-detail className="obs-eyebrow">AVERSA 44</p><h1>{reveal('Terima kasih, mitra & sponsor')}</h1></div><img src="/assets/svg/logo-symbol-tight.svg" alt="AVERSA 44" /></div>{hasCredits ? credits : <p>Belum ada logo mitra yang ditampilkan.</p>}</>)}
-          </div>
-        )}
       </div>
-      {stinger && <div key={stinger.key} className="aversa-stinger obs-stinger fixed inset-0 z-50 flex items-center justify-center bg-[#360538]"><VelvetStage reducedMotion={reducedMotion} /><div className="aversa-stinger-content"><img src="/assets/png/logo-symbol-color.png" alt="AVERSA 44" /><h1><ShinyText text={stinger.label} disabled={reducedMotion} /></h1>{hasCredits && credits}</div></div>}
+      {stinger && <div key={stinger.key} className="aversa-stinger obs-stinger fixed inset-0 z-50 flex items-center justify-center bg-[#360538]"><VelvetStage reducedMotion={reducedMotion} /><div className="aversa-stinger-content"><img src="/assets/png/logo-symbol-color.png" alt="AVERSA 44" /><h1><ShinyText text={stinger.label} disabled={reducedMotion} /></h1>{hasCredits && renderSponsorBar(true)}</div></div>}
     </div>
   );
 };

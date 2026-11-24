@@ -363,7 +363,9 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       const partnerHeight = mediaPartner ? u * 0.085 : 0;
       const creditsHeight = sponsorHeight + partnerHeight;
       const verticalSafe = aspectRatio === '9:16' ? h * 0.12 : safePad;
-      const cardBottomY = h - verticalSafe - (creditsHeight + u * 0.02);
+      const bottomEdgePad = Math.round(u * 0.032);
+      const creditsY = h - bottomEdgePad - creditsHeight;
+      const cardBottomY = creditsHeight > 0 ? creditsY - u * 0.018 : h - verticalSafe - u * 0.02;
       const textWidth = isLandscape && template === 'promo_store' ? w * 0.4 : w - safePad * 2;
       ctx.save();
       const titleFit = fitCanvasLines(ctx, customTitle, textWidth, 800, '"Playfair Display", Georgia, serif', Math.round(u * 0.068));
@@ -661,16 +663,16 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       ctx.fillStyle = '#F5B8CB';
       ctx.fillText(customFooterNote, textX, footerY, textWidth);
 
-      // Reserve a separate credit area, keeping logos inside the safe margin.
+      // Anchor credits near the bottom edge so the center subject remains unobstructed.
       const drawCredits = () => {
       if (creditsHeight > 0) {
         ctx.save();
-        const creditsY = h - verticalSafe - creditsHeight;
-        ctx.fillStyle = '#1A021D';
-        ctx.fillRect(safePad, creditsY, w - safePad * 2, creditsHeight);
-        ctx.strokeStyle = '#F5C53866';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(safePad, creditsY); ctx.lineTo(w - safePad, creditsY); ctx.stroke();
+        drawRoundRectPath(ctx, safePad, creditsY, w - safePad * 2, creditsHeight, Math.round(u * 0.016));
+        ctx.fillStyle = 'rgba(26, 2, 29, 0.92)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(245, 197, 56, 0.4)';
+        ctx.lineWidth = Math.max(1, u * 0.0015);
+        ctx.stroke();
         const drawLogo = (src: string, x: number, y: number, width: number, height: number, boxed = false) => {
           const img = ensureImage(src);
           if (!img) return;
