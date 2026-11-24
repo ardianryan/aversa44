@@ -84,7 +84,7 @@ async function loadImage(blob: Blob): Promise<HTMLImageElement> {
   } finally { URL.revokeObjectURL(url); }
 }
 
-export async function normalizeImageInBrowser(file: File, maxDim = 2048): Promise<NormalizedImage> {
+export async function normalizeImageInBrowser(file: File, maxDim = 1600): Promise<NormalizedImage> {
   let img: HTMLImageElement;
   try { img = await loadImage(file); }
   catch (error) {
@@ -102,24 +102,49 @@ export async function normalizeImageInBrowser(file: File, maxDim = 2048): Promis
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Kanvas browser tidak tersedia.');
   ctx.drawImage(img, 0, 0, width, height);
-  return { dataUrl: canvas.toDataURL('image/png'), width, height };
+  const keepPng = file.type === 'image/png' || /\.png$/i.test(file.name);
+  return { dataUrl: keepPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92), width, height };
 }
 
 async function probeVideo(url: string): Promise<PreparedVideo> {
   const video = document.createElement('video');
-  video.preload = 'auto'; video.muted = true; video.playsInline = true;
+  video.preload = 'auto';
+  video.muted = true;
+  video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+  document.body?.appendChild(video);
+
   return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => finish(false), 8000);
+    let settled = false;
+    let metaTimer = 0;
+    const timer = window.setTimeout(() => finish(false), 15000);
     const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
       window.clearTimeout(timer);
+      window.clearTimeout(metaTimer);
       const result = { objectUrl: url, durationSec: video.duration, width: video.videoWidth, height: video.videoHeight };
-      video.removeAttribute('src'); video.load();
+      video.onloadeddata = null;
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      video.load();
+      video.remove();
       if (ok && result.width > 0 && result.height > 0 && Number.isFinite(result.durationSec) && result.durationSec > 0) resolve(result);
       else reject(new Error('Video tidak dapat diputar di browser ini.'));
     };
     video.onloadeddata = () => finish(true);
+    video.onloadedmetadata = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0 && Number.isFinite(video.duration) && video.duration > 0) {
+        // Give loadeddata a short window on mobile, otherwise resolve from metadata so iOS Safari never hangs
+        metaTimer = window.setTimeout(() => finish(true), 250);
+      }
+    };
     video.onerror = () => finish(false);
     video.src = url;
+    video.load();
   });
 }
 
@@ -128,8 +153,12 @@ export async function prepareVideoInBrowser(file: File, onStatus?: (text: string
   try { return await probeVideo(url); }
   catch {
     URL.revokeObjectURL(url);
-    if (!/\.(mov|qt|mp4|m4v)$/i.test(file.name) && !/quicktime|mp4/i.test(file.type)) throw new Error('Video tidak dapat dibaca. Gunakan MP4 atau MOV.');
-    const mp4 = await transcode(file, 'mov', onStatus);
+    const extMatch = file.name.match(/\.(mov|qt|mp4|m4v|webm|3gp|mkv)$/i);
+    if (!extMatch && !/quicktime|mp4|webm|3gpp|matroska/i.test(file.type)) {
+      throw new Error('Video tidak dapat dibaca. Gunakan MP4, MOV, atau WebM.');
+    }
+    const inputExt = (extMatch?.[1] || 'mov').toLowerCase();
+    const mp4 = await transcode(file, inputExt, onStatus);
     const convertedUrl = URL.createObjectURL(mp4);
     try { return await probeVideo(convertedUrl); }
     catch (error) { URL.revokeObjectURL(convertedUrl); throw error; }

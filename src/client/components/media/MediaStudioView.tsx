@@ -845,7 +845,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
     setMediaStatus('Menyiapkan foto di perangkat...');
     try {
     for (const f of files) {
-      const norm = await normalizeImageInBrowser(f, 2048);
+      const norm = await normalizeImageInBrowser(f, 1600);
       next.push({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         dataUrl: norm.dataUrl,
@@ -922,6 +922,8 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
     let raf = 0;
     let cancelled = false;
     let videoGainNode: GainNode | null = null;
+    let capturedVideoStream: MediaStream | null = null;
+    let capturedSourceNode: MediaStreamAudioSourceNode | null = null;
     try {
       const totalSec = timelinePlan.totalDurationSec;
       const needAudio = record || includeSfx || (mediaMode === 'video' && videoClip && !videoClip.mutedOriginal);
@@ -933,7 +935,9 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         }
         audioCtx = audioCtxRef.current;
         if (audioCtx.state === 'suspended') {
-          await audioCtx.resume();
+          // Call resume synchronously before any await so iOS Safari unlocks Web Audio on user tap
+          const resumePromise = audioCtx.resume();
+          await resumePromise;
         }
       }
 
@@ -953,34 +957,62 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         scheduleStudioSfx(audioCtx, targetAudio, slideTimes);
       }
 
-      if (mediaMode === 'video' && videoElRef.current && videoClip && audioCtx) {
+      if (mediaMode === 'video' && videoElRef.current && videoClip) {
         const videoEl = videoElRef.current;
         videoEl.currentTime = videoClip.trimStart;
-        videoEl.muted = false;
         videoEl.volume = 1.0;
         videoEl.pause();
 
-        try {
-          let sourceNode: MediaElementAudioSourceNode = (videoEl as any).__audioSourceNode;
-          if (!sourceNode) {
-            sourceNode = audioCtx.createMediaElementSource(videoEl);
-            (videoEl as any).__audioSourceNode = sourceNode;
+        const existingSourceNode: MediaElementAudioSourceNode | undefined = (videoEl as any).__audioSourceNode;
+        if (record && destination && audioCtx) {
+          if (!videoClip.mutedOriginal) {
+            const captureFn = (videoEl as any).captureStream || (videoEl as any).mozCaptureStream;
+            if (typeof captureFn === 'function' && !existingSourceNode) {
+              try {
+                videoEl.muted = false;
+                capturedVideoStream = captureFn.call(videoEl);
+                if (capturedVideoStream && capturedVideoStream.getAudioTracks().length > 0) {
+                  capturedSourceNode = audioCtx.createMediaStreamSource(capturedVideoStream);
+                  videoGainNode = audioCtx.createGain();
+                  videoGainNode.gain.value = 1.0;
+                  capturedSourceNode.connect(videoGainNode);
+                  videoGainNode.connect(destination);
+                }
+              } catch (err) {
+                console.warn('captureStream audio notice:', err);
+              }
+            }
+            if (!capturedSourceNode) {
+              try {
+                videoEl.muted = false;
+                let sourceNode = existingSourceNode;
+                if (!sourceNode) {
+                  sourceNode = audioCtx.createMediaElementSource(videoEl);
+                  (videoEl as any).__audioSourceNode = sourceNode;
+                }
+                videoGainNode = audioCtx.createGain();
+                videoGainNode.gain.value = 1.0;
+                sourceNode.connect(videoGainNode);
+                videoGainNode.connect(destination);
+              } catch (err) {
+                console.warn('Audio node connect notice:', err);
+              }
+            }
+          } else {
+            videoEl.muted = true;
           }
-          videoGainNode = audioCtx.createGain();
-          videoGainNode.gain.value = videoClip.mutedOriginal ? 0.0 : 1.0;
-          sourceNode.connect(videoGainNode);
-          if (record && destination) {
-            videoGainNode.connect(destination);
-          } else if (!record) {
+        } else {
+          // Preview mode: prefer native <video> audio playback on mobile unless already bound to Web Audio
+          if (existingSourceNode && audioCtx) {
+            videoEl.muted = false;
+            videoGainNode = audioCtx.createGain();
+            videoGainNode.gain.value = videoClip.mutedOriginal ? 0.0 : 1.0;
+            existingSourceNode.connect(videoGainNode);
             videoGainNode.connect(audioCtx.destination);
+          } else {
+            videoEl.muted = Boolean(videoClip.mutedOriginal);
           }
-        } catch (err) {
-          console.warn('Audio node connect notice:', err);
         }
-      } else if (mediaMode === 'video' && videoElRef.current && videoClip) {
-        videoElRef.current.currentTime = videoClip.trimStart;
-        videoElRef.current.muted = true;
-        videoElRef.current.pause();
       }
 
       if (record) {
@@ -1046,6 +1078,10 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       if (videoGainNode) {
         try { videoGainNode.disconnect(); } catch {}
       }
+      if (capturedSourceNode) {
+        try { capturedSourceNode.disconnect(); } catch {}
+      }
+      capturedVideoStream?.getTracks().forEach((track) => track.stop());
       if (videoElRef.current) {
         videoElRef.current.pause();
         videoElRef.current.muted = true;
@@ -1301,22 +1337,36 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
                 <video
                   ref={videoElRef}
                   src={videoClip.objectUrl}
+                  preload="auto"
                   playsInline
                   muted
                   onLoadedData={async (event) => {
                     const video = event.currentTarget;
+                    if (!animationBusyRef.current) {
+                      try {
+                        await video.play();
+                        await new Promise<void>((resolve) => {
+                          if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(() => resolve());
+                          else setTimeout(resolve, 120);
+                        });
+                        if (videoElRef.current === video && !animationBusyRef.current) {
+                          video.pause();
+                          video.currentTime = videoClip.coverTime ?? videoClip.trimStart;
+                        }
+                      } catch {
+                        try {
+                          video.currentTime = videoClip.coverTime ?? videoClip.trimStart;
+                        } catch {}
+                      }
+                    }
                     captureVideoPoster(video);
-                    if (animationBusyRef.current) return;
-                    try {
-                      video.currentTime = videoClip.coverTime ?? videoClip.trimStart;
-                    } catch {}
                     setAssetTick((tick) => tick + 1);
                   }}
                   onSeeked={(event) => {
                     captureVideoPoster(event.currentTarget);
                     setAssetTick((tick) => tick + 1);
                   }}
-                  className="hidden"
+                  className="fixed -left-[9999px] top-0 w-px h-px opacity-0 pointer-events-none"
                 />
 
                 {videoClip.posterDataUrl && (

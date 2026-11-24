@@ -4,6 +4,11 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.3 - 2026-11-24
+
+- Media Studio (Mobile iOS & Android): Fix blank video canvas & missing audio on mobile browsers by rendering the source `<video>` offscreen (`opacity-0` 1x1px) instead of `display: none`, forcing first-frame GPU decode on load, and attaching temporary probe `<video>` elements to `document.body` with `loadedmetadata` fallback.
+- Media Studio (Mobile iOS & Android): Use native `<video>` audio playback in preview, `captureStream` audio mixing on Android/Desktop export (with Web Audio fallback for iOS Safari), and JPEG memory optimization for high-MP mobile camera photos.
+
 ## 0.2.2 - 2026-11-24
 
 - Media Studio: Enable full cross-device video & photo support, including iPhone HEIC image decoding and H.264 (yuv420p) + AAC audio + faststart MP4 export for seamless QuickTime and iOS Safari playback.
