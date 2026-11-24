@@ -179,13 +179,13 @@ export const ObsOverlayDisplay: React.FC = () => {
   const transitionAnimClass = overlay.transition_preset === 'cut' ? 'obs-enter-cut' : '';
   const reveal = (text: string, centered = false) => <SplitText key={text} text={text} className={centered ? 'justify-center' : ''} delayMs={120} staggerMs={35} reducedMotion={reducedMotion || overlay.transition_preset === 'cut'} />;
   const rankedSponsors = [...sponsors].filter(sp => sp.is_active).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
-  const perPage = 4;
-  const sponsorPageCount = Math.max(1, Math.ceil(rankedSponsors.length / perPage));
-  const sponsorPage = Math.floor(sponsorSwap.value / 2) % sponsorPageCount;
-  const visibleRowSponsors = rankedSponsors.slice(sponsorPage * perPage, sponsorPage * perPage + perPage);
+  const primarySponsors = rankedSponsors.slice(0, 3);
   const supporting = rankedSponsors.slice(3);
-  const supportingPage = Math.floor(sponsorSwap.value / 2) % Math.max(1, Math.ceil(supporting.length / 6));
-  const visibleSponsors = supporting.slice(supportingPage * 6, supportingPage * 6 + 6);
+  const supportingPageSize = 12;
+  const supportingPage = Math.floor(sponsorSwap.value / 2) % Math.max(1, Math.ceil(supporting.length / supportingPageSize));
+  const visibleSponsors = supporting.slice(supportingPage * supportingPageSize, supportingPage * supportingPageSize + supportingPageSize);
+  const supportingRows = Math.max(1, Math.ceil(visibleSponsors.length / 6));
+  const supportingCols = visibleSponsors.length > 0 ? Math.min(6, Math.ceil(visibleSponsors.length / supportingRows)) : 1;
 
   const frame = (children: React.ReactNode, className = '') => (
     <StarBorder disabled={reducedMotion || overlay.transition_preset === 'cut'} speed="8s" className={`obs-frame ${className}`}>
@@ -213,23 +213,41 @@ export const ObsOverlayDisplay: React.FC = () => {
   const isCameraPreset = overlay.layout_preset !== 'standby_soon';
 
   const renderSponsorBar = (includePartner = false) => (
-    <div className="obs-sponsor-bar">
+    <div className={`obs-sponsor-bar ${supporting.length > 0 ? 'obs-sponsor-bar-has-grid' : ''}`}>
       {hasSponsors && (
         <div className="obs-sponsor-bar-main">
           <span className="obs-sponsor-bar-label">Didukung oleh</span>
-          <div key={sponsorPage} className={`obs-sponsor-bar-logos ${sponsorSwap.leaving ? 'obs-logos-leaving' : ''}`}>
-            {visibleRowSponsors.map((sp, idx) => (
-              <AnimatedContent
-                key={sp.id}
-                trigger="mount"
-                duration={0.65}
-                distance={motionOff ? 0 : 12}
-                delay={motionOff ? 0 : idx * 0.06}
-                animateOpacity={!motionOff}
+          <div className="obs-sponsor-smart-stack">
+            <div
+              className="obs-smart-primary"
+              style={{ '--smart-cols': Math.max(1, primarySponsors.length) } as React.CSSProperties}
+            >
+              {primarySponsors.map((sp) => (
+                <div key={sp.id} className="obs-sponsor-bar-item">
+                  {renderSponsorLogo(sp, supporting.length > 0 ? 'obs-bar-primary-logo' : 'obs-bar-logo')}
+                </div>
+              ))}
+            </div>
+            {visibleSponsors.length > 0 && (
+              <div
+                key={supportingPage}
+                className={`obs-smart-supporting ${sponsorSwap.leaving ? 'obs-logos-leaving' : ''}`}
+                style={{ '--smart-cols': supportingCols } as React.CSSProperties}
               >
-                <div className="obs-sponsor-bar-item">{renderSponsorLogo(sp, 'obs-bar-logo')}</div>
-              </AnimatedContent>
-            ))}
+                {visibleSponsors.map((sp, idx) => (
+                  <AnimatedContent
+                    key={sp.id}
+                    trigger="mount"
+                    duration={0.65}
+                    distance={motionOff ? 0 : 10}
+                    delay={motionOff ? 0 : idx * 0.04}
+                    animateOpacity={!motionOff}
+                  >
+                    <div className="obs-sponsor-bar-item">{renderSponsorLogo(sp, 'obs-bar-supporting-logo')}</div>
+                  </AnimatedContent>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -702,13 +702,21 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         if (activeSponsors.length) {
           ctx.fillText('DIDUKUNG OLEH', w / 2, creditsY + u * 0.016);
           const main = activeSponsors.slice(0, 3);
-          const mainWidth = (w - safePad * 2) / 3;
-          main.forEach((sp, i) => drawLogo(sp.dark_logo_url || sp.logo_url, (w - main.length * mainWidth) / 2 + i * mainWidth, creditsY + u * 0.032, mainWidth, u * 0.085, sp.boxed && !sp.dark_logo_url));
-          const smallWidth = (w - safePad * 2) / 6;
-          activeSponsors.slice(3).forEach((sp, i) => {
-            const count = Math.min(6, activeSponsors.length - 3 - Math.floor(i / 6) * 6);
-            drawLogo(sp.dark_logo_url || sp.logo_url, (w - count * smallWidth) / 2 + (i % 6) * smallWidth, creditsY + u * 0.13 + Math.floor(i / 6) * u * 0.055, smallWidth, u * 0.044, sp.boxed && !sp.dark_logo_url);
-          });
+          const mainWidth = (w - safePad * 2) / Math.max(1, main.length);
+          main.forEach((sp, i) => drawLogo(sp.dark_logo_url || sp.logo_url, safePad + i * mainWidth, creditsY + u * 0.032, mainWidth, u * 0.088, sp.boxed && !sp.dark_logo_url));
+          const supporting = activeSponsors.slice(3);
+          if (supporting.length > 0) {
+            const rows = Math.ceil(supporting.length / 6);
+            const smartCols = Math.min(6, Math.ceil(supporting.length / rows));
+            const cellWidth = (w - safePad * 2) / smartCols;
+            supporting.forEach((sp, i) => {
+              const rowIdx = Math.floor(i / smartCols);
+              const colIdx = i % smartCols;
+              const itemsInRow = Math.min(smartCols, supporting.length - rowIdx * smartCols);
+              const rowStartX = (w - itemsInRow * cellWidth) / 2;
+              drawLogo(sp.dark_logo_url || sp.logo_url, rowStartX + colIdx * cellWidth, creditsY + u * 0.13 + rowIdx * u * 0.055, cellWidth, u * 0.046, sp.boxed && !sp.dark_logo_url);
+            });
+          }
         }
         if (mediaPartner) {
           const py = creditsY + sponsorHeight;

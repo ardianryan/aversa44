@@ -4,6 +4,10 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.9 - 2026-11-24
+
+- Media Studio & OBS Broadcast Overlay: Implement a balanced Smart Grid for sponsors when there are many active sponsors, prominently prioritizing the top 3 as primary sponsors on Row 1 and distributing remaining supporting sponsors evenly below.
+
 ## 0.2.8 - 2026-11-24
 
 - Media Studio: Anchor the sponsor and Official Media Partner credits strip near the bottom edge (~3% margin) across all aspect ratios so the center subject and main copy stay clear.
