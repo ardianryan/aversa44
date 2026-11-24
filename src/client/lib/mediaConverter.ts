@@ -41,7 +41,26 @@ async function transcode(input: Blob, inputExt: string, onStatus?: (text: string
       tempo.push(remaining);
       filters.push('-vf', `setpts=PTS/${speed.toFixed(6)}`, '-af', tempo.map((value) => `atempo=${value.toFixed(6)}`).join(','));
     }
-    const result = await ffmpeg.exec(['-i', source, ...filters, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', target]);
+    const result = await ffmpeg.exec([
+      '-fflags', '+genpts',
+      '-i', source,
+      ...filters,
+      '-r', '30',
+      '-vsync', '1',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-profile:v', 'high',
+      '-level:v', '4.1',
+      '-g', '60',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac',
+      '-ar', '48000',
+      '-ac', '2',
+      '-b:a', '128k',
+      '-movflags', '+faststart',
+      target,
+    ]);
     if (result !== 0) throw new Error('Konversi video gagal. Coba gunakan video lain.');
     const data = await ffmpeg.readFile(target);
     if (!(data instanceof Uint8Array) || !data.length) throw new Error('Hasil konversi video kosong.');
@@ -54,7 +73,8 @@ async function transcode(input: Blob, inputExt: string, onStatus?: (text: string
 }
 
 export async function convertToMp4InBrowser(blob: Blob, onStatus?: (text: string) => void): Promise<Blob> {
-  return transcode(blob, 'webm', onStatus);
+  const inputExt = blob.type.includes('mp4') ? 'mp4' : 'webm';
+  return transcode(blob, inputExt, onStatus);
 }
 
 export async function ensureMp4Duration(blob: Blob, targetSec: number, onStatus?: (text: string) => void): Promise<Blob> {

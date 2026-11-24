@@ -4,6 +4,11 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.5 - 2026-11-24
+
+- Media Studio: Fix social media upload spinning/rejection by always transcoding `MediaRecorder` output (including Chrome/Safari fragmented MP4) to standard Constant Frame Rate (`30fps`), H.264 High@L4.1 (`yuv420p`, keyframe interval `60`), AAC 48kHz stereo, `+faststart` MP4.
+- Media Studio: Keep a silent 48kHz Web Audio keep-alive stream connected during recording so `MediaRecorder` always emits continuous audio timestamps.
+
 ## 0.2.4 - 2026-11-24
 
 - Media Studio: Fix video playback/export freezing around 10s by unlocking `<video>` synchronously on user gesture, guarding `onSeeked` against mid-playback state updates, and adding a playback stall recovery watchdog.

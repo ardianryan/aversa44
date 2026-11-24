@@ -984,6 +984,8 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
     let videoGainNode: GainNode | null = null;
     let capturedVideoStream: MediaStream | null = null;
     let capturedSourceNode: MediaStreamAudioSourceNode | null = null;
+    let keepAliveOsc: OscillatorNode | null = null;
+    let keepAliveGain: GainNode | null = null;
     try {
       const totalSec = timelinePlan.totalDurationSec;
       const needAudio = record || includeSfx || (mediaMode === 'video' && videoClip && !videoClip.mutedOriginal);
@@ -1002,6 +1004,15 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       }
 
       const destination = record && audioCtx ? audioCtx.createMediaStreamDestination() : null;
+      if (record && destination && audioCtx) {
+        // Keep a silent 48kHz PCM stream active so MediaRecorder always emits valid audio frames
+        keepAliveOsc = audioCtx.createOscillator();
+        keepAliveGain = audioCtx.createGain();
+        keepAliveGain.gain.value = 0;
+        keepAliveOsc.connect(keepAliveGain);
+        keepAliveGain.connect(destination);
+        keepAliveOsc.start();
+      }
 
       if (includeSfx && audioCtx) {
         const targetAudio = destination ? destination : audioCtx.destination;
@@ -1141,7 +1152,8 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         recorder.stop(); await done;
         if (!cancelled) {
           let blob = new Blob(chunks, { type: mimeType });
-          if (!mimeType.startsWith('video/mp4')) blob = await convertToMp4InBrowser(blob, setMediaStatus);
+          // Always transcode MediaRecorder output (including Chrome/Safari fMP4) to standard CFR +faststart MP4 for social media
+          blob = await convertToMp4InBrowser(blob, setMediaStatus);
           blob = await ensureMp4Duration(blob, totalSec, setMediaStatus);
           if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
           const url = URL.createObjectURL(blob); resultUrlRef.current = url; setResultUrl(url);
@@ -1152,6 +1164,12 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
     finally {
       animationBusyRef.current = false;
       previewStopRef.current = null;
+      if (keepAliveOsc) {
+        try { keepAliveOsc.stop(); keepAliveOsc.disconnect(); } catch {}
+      }
+      if (keepAliveGain) {
+        try { keepAliveGain.disconnect(); } catch {}
+      }
       if (videoGainNode) {
         try { videoGainNode.disconnect(); } catch {}
       }
