@@ -3,6 +3,10 @@ import { drawConfectioneryTransition, CONFECTIONERY_TRANSITION_SEC } from './con
 import { scheduleStudioSfx } from '../../lib/studioSfx.ts';
 import { drawCanvasVelvetStage, drawCanvasStarBorder, drawCanvasFloatingOrnament, easeOutStage, smoothStep } from '../reactbits/canvas-effects.ts';
 import { ShinyText } from '../reactbits/ShinyText.tsx';
+import { SplitText } from '../reactbits/SplitText.tsx';
+import { StarBorder } from '../reactbits/StarBorder.tsx';
+import AnimatedContent from '../reactbits/AnimatedContent.tsx';
+import { AuroraBackground } from '../reactbits/AuroraBackground.tsx';
 import {
   clampMediaFraming,
   computeMaxPanFractions,
@@ -362,22 +366,22 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       const cardBottomY = h - verticalSafe - (creditsHeight + u * 0.02);
       const textWidth = isLandscape && template === 'promo_store' ? w * 0.4 : w - safePad * 2;
       ctx.save();
-      const titleFit = fitCanvasLines(ctx, customTitle, textWidth, 800, '"Playfair Display", Georgia, serif', Math.round(u * 0.05));
-      const subtitleFit = fitCanvasLines(ctx, customSubtitle, textWidth, 600, '"Plus Jakarta Sans", sans-serif', Math.round(u * 0.025));
+      const titleFit = fitCanvasLines(ctx, customTitle, textWidth, 800, '"Playfair Display", Georgia, serif', Math.round(u * 0.068));
+      const subtitleFit = fitCanvasLines(ctx, customSubtitle, textWidth, 600, '"Plus Jakarta Sans", sans-serif', Math.round(u * 0.036));
       ctx.restore();
       const titleFontSize = titleFit.size;
       const subtitleFontSize = subtitleFit.size;
       const titleLineHeight = titleFontSize * 1.13;
-      const subtitleLineHeight = subtitleFontSize * 1.2;
+      const subtitleLineHeight = subtitleFontSize * 1.22;
       const titleLines = titleFit.lines;
       const subLines = subtitleFit.lines;
-      const footerY = cardBottomY - u * 0.025;
-      const subtitleLastY = footerY - u * 0.048;
+      const footerY = cardBottomY - u * 0.028;
+      const subtitleLastY = footerY - u * 0.058;
       const subtitleFirstY = subtitleLastY - Math.max(0, subLines.length - 1) * subtitleLineHeight;
-      const titleLastY = subtitleFirstY - subtitleFontSize * 0.6 - titleFontSize * 0.62 - u * 0.012;
+      const titleLastY = subtitleFirstY - subtitleFontSize * 0.65 - titleFontSize * 0.65 - u * 0.014;
       const titleFirstY = titleLastY - Math.max(0, titleLines.length - 1) * titleLineHeight;
-      const badgeH = Math.round(u * 0.044);
-      const textTopStart = titleFirstY - titleFontSize * 0.65 - badgeH - u * 0.012;
+      const badgeH = Math.round(u * 0.054);
+      const textTopStart = titleFirstY - titleFontSize * 0.68 - badgeH - u * 0.016;
 
       // Stage texture remains behind uploaded media.
       ctx.save();
@@ -461,25 +465,66 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
 
       }
 
+      // Animated royal gold StarBorder & corner filigrees framing the main stage.
+      drawCanvasStarBorder(ctx, Math.round(safePad * 0.45), Math.round(verticalSafe * 0.45), w - Math.round(safePad * 0.9), h - Math.round(verticalSafe * 0.9), elapsedSec, motionEnabled);
+      if (showSwoosh) {
+        const filigree = ensureImage('/assets/brandkit/item-ornate-corner-filigree.svg');
+        if (filigree) {
+          const fSize = Math.round(u * 0.095);
+          const fAlpha = motionEnabled ? 0.55 + Math.sin(elapsedSec * 1.8) * 0.2 : 0.65;
+          const corners: Array<[number, number, number, number]> = [
+            [safePad * 0.45, verticalSafe * 0.45, 1, 1],
+            [w - safePad * 0.45, verticalSafe * 0.45, -1, 1],
+            [safePad * 0.45, h - verticalSafe * 0.45, 1, -1],
+            [w - safePad * 0.45, h - verticalSafe * 0.45, -1, -1],
+          ];
+          corners.forEach(([cx, cy, sx, sy]) => {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.scale(sx, sy);
+            ctx.globalAlpha = fAlpha;
+            ctx.drawImage(filigree, 0, 0, fSize, fSize);
+            ctx.restore();
+          });
+        }
+        // Drifting golden stardust particles along the stage edges
+        if (motionEnabled) {
+          ctx.save();
+          for (let p = 0; p < 14; p++) {
+            const side = p % 2 === 0;
+            const px = side ? u * (0.04 + ((p * 37) % 12) * 0.012) : w - u * (0.04 + ((p * 53) % 12) * 0.012);
+            const py = ((h * 0.15 + (p * 117) % (h * 0.7) - elapsedSec * u * 0.045) % (h * 0.75) + h * 0.75) % (h * 0.75) + h * 0.12;
+            const pr = u * (0.003 + (p % 3) * 0.002);
+            const alpha = 0.25 + 0.45 * Math.abs(Math.sin(elapsedSec * 1.9 + p * 0.9));
+            ctx.fillStyle = p % 3 === 0 ? '#FDF39D' : '#F5C538';
+            ctx.globalAlpha = alpha;
+            ctx.beginPath();
+            ctx.arc(px, py, pr, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+      }
+
       // Small animated props stay near the frame, leaving the center for the subject.
       const propPaths: Record<AversaTemplate, string[]> = {
-        guest_star: ['item-golden-cane.svg', 'item-stardust-sparkle-stars.svg'],
-        countdown: ['item-golden-ticket-badge.svg', 'item-stardust-sparkle-stars.svg'],
-        schedule: ['item-golden-cane.svg', 'item-stardust-sparkle-stars.svg'],
-        promo_store: ['item-golden-ticket-badge.svg', 'item-golden-chocolate-bar.svg'],
-        live_recap: ['item-stardust-sparkle-stars.svg', 'item-golden-cane.svg'],
+        guest_star: ['item-golden-cane.svg', 'item-stardust-sparkle-stars.svg', 'item-golden-ticket-badge.svg'],
+        countdown: ['item-golden-ticket-badge.svg', 'item-stardust-sparkle-stars.svg', 'item-golden-chocolate-bar.svg'],
+        schedule: ['item-golden-cane.svg', 'item-stardust-sparkle-stars.svg', 'item-golden-ticket-badge.svg'],
+        promo_store: ['item-golden-ticket-badge.svg', 'item-golden-chocolate-bar.svg', 'item-stardust-sparkle-stars.svg'],
+        live_recap: ['item-stardust-sparkle-stars.svg', 'item-golden-cane.svg', 'item-golden-ticket-badge.svg'],
       };
       propPaths[template].forEach((name, index) => {
         const prop = ensureImage(`/assets/brandkit/${name}`);
         if (!prop || (name.includes('stars') && !showSwoosh)) return;
-        const size = u * (name.includes('stars') ? 0.095 : 0.12);
-        const x = index === 0 ? u * 0.075 : w - u * 0.075;
-        const y = Math.min(h * 0.42, Math.max(h * 0.2, textTopStart - size * 0.8));
-        const phase = elapsedSec * 1.15 + index * 2;
+        const size = u * (name.includes('stars') ? 0.11 : 0.13);
+        const x = index === 0 ? u * 0.08 : index === 1 ? w - u * 0.08 : w - u * 0.095;
+        const yBase = index === 2 ? Math.max(h * 0.24, textTopStart - size * 1.45) : Math.min(h * 0.44, Math.max(h * 0.2, textTopStart - size * 0.8));
+        const phase = elapsedSec * 1.35 + index * 2.1;
         ctx.save();
-        ctx.translate(x, y + (motionEnabled ? Math.sin(phase) * u * 0.008 : 0));
-        ctx.rotate((index === 0 ? -0.14 : 0.14) + (motionEnabled ? Math.sin(phase) * 0.06 : 0));
-        ctx.globalAlpha = 0.88;
+        ctx.translate(x, yBase + (motionEnabled ? Math.sin(phase) * u * 0.012 : 0));
+        ctx.rotate((index === 0 ? -0.14 : 0.14) + (motionEnabled ? Math.sin(phase) * 0.08 : 0));
+        ctx.globalAlpha = 0.9;
         ctx.drawImage(prop, -size / 2, -size / 2, size, size);
         ctx.restore();
       });
@@ -504,12 +549,12 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
 
       // Official school crest and AVERSA wordmark form the identity lockup.
       const topY = verticalSafe + Math.round(u * 0.015);
-      const crestH = Math.round(u * 0.068);
+      const crestH = Math.round(u * 0.074);
       ctx.save();
-      ctx.fillStyle = 'rgba(26,2,29,0.86)';
-      ctx.strokeStyle = 'rgba(245,197,56,0.5)';
-      ctx.lineWidth = Math.max(1, u * 0.0015);
-      drawRoundRectPath(ctx, safePad - u * 0.015, topY - u * 0.012, w - safePad * 2 + u * 0.03, crestH + u * 0.024, u * 0.015);
+      ctx.fillStyle = 'rgba(26,2,29,0.88)';
+      ctx.strokeStyle = 'rgba(245,197,56,0.62)';
+      ctx.lineWidth = Math.max(1.5, u * 0.002);
+      drawRoundRectPath(ctx, safePad - u * 0.015, topY - u * 0.012, w - safePad * 2 + u * 0.03, crestH + u * 0.024, u * 0.018);
       ctx.fill(); ctx.stroke(); ctx.restore();
       let cursorX = safePad;
       for (const crestPath of [
@@ -525,26 +570,26 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
 
       ctx.save();
       ctx.fillStyle = '#FFF5D6';
-      ctx.font = `700 ${Math.round(u * 0.018)}px "Plus Jakarta Sans", sans-serif`;
+      ctx.font = `700 ${Math.round(u * 0.025)}px "Plus Jakarta Sans", sans-serif`;
       ctx.textBaseline = 'middle';
-      ctx.fillText('SMA NEGERI 1 GEDEG', cursorX, topY + crestH * 0.5, w * 0.34);
+      ctx.fillText('SMA NEGERI 1 GEDEG', cursorX, topY + crestH * 0.5, w * 0.42);
       ctx.restore();
 
       const logotype = ensureImage('/assets/png/aversa-logotype-horizontal.png');
       if (logotype) {
-        const lH = Math.round(u * 0.06);
+        const lH = Math.round(u * 0.064);
         const lW = Math.round(lH * (logotype.naturalWidth / Math.max(1, logotype.naturalHeight)));
         ctx.drawImage(logotype, w - safePad - lW, topY + 4, lW, lH);
       }
 
       // 7. Bottom Theatrical Typography Card & Sponsor Auto-Stamp Strip
       ctx.save();
-      const grad = ctx.createLinearGradient(0, textTopStart - Math.round(u * 0.1), 0, h);
+      const grad = ctx.createLinearGradient(0, textTopStart - Math.round(u * 0.12), 0, h);
       grad.addColorStop(0, 'rgba(26, 2, 29, 0)');
-      grad.addColorStop(0.28, 'rgba(26, 2, 29, 0.88)');
-      grad.addColorStop(1, 'rgba(13, 1, 15, 0.96)');
+      grad.addColorStop(0.28, 'rgba(26, 2, 29, 0.90)');
+      grad.addColorStop(1, 'rgba(13, 1, 15, 0.97)');
       ctx.fillStyle = grad;
-      ctx.fillRect(0, textTopStart - Math.round(u * 0.1), w, h - (textTopStart - Math.round(u * 0.1)));
+      ctx.fillRect(0, textTopStart - Math.round(u * 0.12), w, h - (textTopStart - Math.round(u * 0.12)));
 
       // A short staggered entrance keeps the video preview and rendered export in sync.
       if (motionEnabled) {
@@ -553,24 +598,39 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         ctx.translate(0, (1 - reveal) * u * 0.035);
       }
 
-      // Pill Badge
-      ctx.font = `700 ${Math.round(u * 0.021)}px "Cinzel", Georgia, serif`;
-      const badgeW = Math.min(w - safePad * 2, ctx.measureText(customBadge.toUpperCase()).width + Math.round(u * 0.06));
+      // Pill Badge with animated golden sheen
+      ctx.font = `700 ${Math.round(u * 0.026)}px "Cinzel", Georgia, serif`;
+      const badgeW = Math.min(w - safePad * 2, ctx.measureText(customBadge.toUpperCase()).width + Math.round(u * 0.07));
       const centered = template === 'countdown';
       const textX = centered ? w / 2 : safePad;
       const badgeX = centered ? (w - badgeW) / 2 : safePad;
 
       ctx.fillStyle = '#310603';
       ctx.strokeStyle = '#F5C538';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       drawRoundRectPath(ctx, badgeX, textTopStart, badgeW, badgeH, badgeH / 2);
       ctx.fill();
       ctx.stroke();
 
+      if (motionEnabled) {
+        ctx.save();
+        drawRoundRectPath(ctx, badgeX, textTopStart, badgeW, badgeH, badgeH / 2);
+        ctx.clip();
+        const sweep = ((elapsedSec * 0.55) % 1.8) - 0.4;
+        const sheenX = badgeX + sweep * badgeW;
+        const sheen = ctx.createLinearGradient(sheenX - u * 0.08, 0, sheenX + u * 0.08, 0);
+        sheen.addColorStop(0, 'rgba(253, 243, 157, 0)');
+        sheen.addColorStop(0.5, 'rgba(253, 243, 157, 0.28)');
+        sheen.addColorStop(1, 'rgba(253, 243, 157, 0)');
+        ctx.fillStyle = sheen;
+        ctx.fillRect(badgeX, textTopStart, badgeW, badgeH);
+        ctx.restore();
+      }
+
       ctx.fillStyle = '#FDF39D';
       ctx.textAlign = centered ? 'center' : 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(customBadge.toUpperCase(), centered ? textX : badgeX + Math.round(u * 0.03), textTopStart + badgeH / 2, badgeW - Math.round(u * 0.06));
+      ctx.fillText(customBadge.toUpperCase(), centered ? textX : badgeX + Math.round(u * 0.035), textTopStart + badgeH / 2, badgeW - Math.round(u * 0.07));
 
       // Headline in Playfair Display Gold-Cream
       ctx.font = `800 ${titleFontSize}px "Playfair Display", Georgia, serif`;
@@ -592,7 +652,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       }
 
       // Footer CTA Note
-      ctx.font = `700 ${Math.round(u * 0.02)}px "Plus Jakarta Sans", sans-serif`;
+      ctx.font = `700 ${Math.round(u * 0.028)}px "Plus Jakarta Sans", sans-serif`;
       ctx.fillStyle = '#F5B8CB';
       ctx.fillText(customFooterNote, textX, footerY, textWidth);
 
@@ -617,7 +677,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         };
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `700 ${u * 0.016}px "Plus Jakarta Sans", sans-serif`;
+        ctx.font = `700 ${Math.round(u * 0.022)}px "Plus Jakarta Sans", sans-serif`;
         ctx.fillStyle = '#FFF5D6';
         if (activeSponsors.length) {
           ctx.fillText('DIDUKUNG OLEH', w / 2, creditsY + u * 0.016);
@@ -759,7 +819,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           const heading = highlight ? customTitle : outro ? 'Sampai jumpa di AVERSA 44' : 'AVERSA 44';
-          const fit = fitCanvasLines(ctx, heading, w - safePad * 3, 800, '"Playfair Display", Georgia, serif', u * (highlight ? 0.055 : 0.044));
+          const fit = fitCanvasLines(ctx, heading, w - safePad * 3, 800, '"Playfair Display", Georgia, serif', u * (highlight ? 0.068 : 0.056));
           ctx.font = `800 ${fit.size}px "Playfair Display", Georgia, serif`;
           ctx.fillStyle = '#FFF5D6';
           const centerY = (h - creditsHeight) * (highlight ? 0.51 : 0.64);
@@ -769,7 +829,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
             else ctx.fillText(line, w / 2, y, w - safePad * 3);
           });
           const detail = highlight ? customSubtitle : outro ? customFooterNote : 'SMA Negeri 1 Gedeg • 1982 - 2026';
-          const detailFit = fitCanvasLines(ctx, detail, w - safePad * 3, 600, '"Plus Jakarta Sans", sans-serif', u * 0.024);
+          const detailFit = fitCanvasLines(ctx, detail, w - safePad * 3, 600, '"Plus Jakarta Sans", sans-serif', u * 0.034);
           ctx.font = `600 ${detailFit.size}px "Plus Jakarta Sans", sans-serif`;
           ctx.fillStyle = '#A0D9CA';
           const detailY = centerY + fit.lines.length * fit.size * 0.6 + u * 0.05;
@@ -959,9 +1019,14 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
 
       if (mediaMode === 'video' && videoElRef.current && videoClip) {
         const videoEl = videoElRef.current;
+        // Unlock <video> playback synchronously within user gesture so delayed play() at mainStartSec never blocks on mobile
+        videoEl.muted = true;
+        try {
+          await videoEl.play();
+        } catch {}
+        videoEl.pause();
         videoEl.currentTime = videoClip.trimStart;
         videoEl.volume = 1.0;
-        videoEl.pause();
 
         const existingSourceNode: MediaElementAudioSourceNode | undefined = (videoEl as any).__audioSourceNode;
         if (record && destination && audioCtx) {
@@ -1041,17 +1106,29 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         previewStopRef.current = () => { cancelled = true; cancelAnimationFrame(raf); resolve(); };
         const step = (now: number) => {
           const elapsed = Math.min(totalSec, (now - started) / 1000);
-          if (mediaMode === 'video' && videoClip && videoElRef.current && !sourceStarted && elapsed >= timelinePlan.mainStartSec) {
-            sourceStarted = true;
-            void videoElRef.current.play().catch(() => {
-              if (videoElRef.current) {
-                videoElRef.current.muted = true;
-                void videoElRef.current.play().catch(() => onNotify('Video tidak dapat diputar. Coba pratinjau kembali.', true));
+          if (mediaMode === 'video' && videoClip && videoElRef.current) {
+            const v = videoElRef.current;
+            if (!sourceStarted && elapsed >= timelinePlan.mainStartSec) {
+              sourceStarted = true;
+              if (Math.abs(v.currentTime - videoClip.trimStart) > 0.25) {
+                v.currentTime = videoClip.trimStart;
               }
-            });
-          }
-          if (mediaMode === 'video' && videoClip && videoElRef.current && (videoElRef.current.currentTime >= videoClip.trimEnd || elapsed >= timelinePlan.mainStartSec + timelinePlan.mainHoldSec)) {
-            videoElRef.current.pause();
+              void v.play().catch(() => {
+                v.muted = true;
+                void v.play().catch(() => onNotify('Video tidak dapat diputar. Coba pratinjau kembali.', true));
+              });
+            } else if (
+              sourceStarted &&
+              v.paused &&
+              !v.ended &&
+              elapsed < timelinePlan.mainStartSec + timelinePlan.mainHoldSec - 0.15 &&
+              v.currentTime < videoClip.trimEnd - 0.15
+            ) {
+              void v.play().catch(() => {});
+            }
+            if (v.currentTime >= videoClip.trimEnd || elapsed >= timelinePlan.mainStartSec + timelinePlan.mainHoldSec) {
+              v.pause();
+            }
           }
           drawStudioFrame(ctx, w, h, elapsed, true);
           if (record) setRenderProgress(Math.round(elapsed / totalSec * 100));
@@ -1093,45 +1170,52 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h2 className="font-theatrical text-2xl sm:text-3xl font-extrabold text-[#FFF5D6]">
-            AVERSA 44 Media Studio (Post, Story &amp; Reels)
-          </h2>
-          <p className="text-xs sm:text-sm text-[#FFF5D6]/80 mt-1">
-            Buat konten dengan karakter panggung AVERSA. Tambahkan musik saat mengunggah ke Instagram.
-          </p>
-        </div>
+      <div className="relative overflow-hidden rounded-2xl border border-[#F5C538]/35 bg-[#250428] p-4 sm:p-6">
+        <AuroraBackground paused={previewPlaying || exportingVideo} />
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <h2 className="font-theatrical text-2xl sm:text-3xl font-extrabold text-[#FFF5D6]">
+              <SplitText text="AVERSA 44 Media Studio" delayMs={35} />
+            </h2>
+            <p className="text-sm sm:text-base text-[#FFF5D6]/90 mt-1.5">
+              Buat konten Post, Story, dan Reels berkarakter panggung AVERSA.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap gap-2.5">
-          <button
-            type="button"
-            disabled={exportingVideo || previewPlaying || !!mediaStatus}
-            onClick={handleDownloadPng}
-            className="min-h-[44px] px-4 py-2 rounded-xl bg-[#A0D9CA] text-[#1A021D] text-xs font-extrabold hover:brightness-105"
-          >
-            Unduh Poster PNG ({RATIO_DIMS[aspectRatio].w}x{RATIO_DIMS[aspectRatio].h})
-          </button>
-          <button
-            type="button"
-            disabled={exportingVideo || previewPlaying || !!mediaStatus}
-            onClick={() => void runAnimation(true)}
-            className="min-h-[44px] px-4 py-2 rounded-xl bg-gradient-to-r from-[#E09D17] to-[#F5C538] text-[#310603] text-xs font-extrabold hover:brightness-105"
-          >
-            {exportingVideo ? `Merender Video (${renderProgress}%)...` : `Ekspor Video Reels (${timelinePlan.totalDurationSec}s)`}
-          </button>
+          <div className="flex flex-wrap gap-2.5">
+            <button
+              type="button"
+              disabled={exportingVideo || previewPlaying || !!mediaStatus}
+              onClick={handleDownloadPng}
+              className="min-h-[46px] px-4 py-2.5 rounded-xl bg-[#A0D9CA] text-[#1A021D] text-sm font-extrabold hover:brightness-105 disabled:opacity-50"
+            >
+              Unduh Poster PNG ({RATIO_DIMS[aspectRatio].w}x{RATIO_DIMS[aspectRatio].h})
+            </button>
+            <StarBorder color="#F5C538" speed="5s">
+              <button
+                type="button"
+                disabled={exportingVideo || previewPlaying || !!mediaStatus}
+                onClick={() => void runAnimation(true)}
+                className="min-h-[46px] px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#E09D17] to-[#F5C538] text-[#310603] text-sm font-extrabold hover:brightness-105 disabled:opacity-50"
+              >
+                {exportingVideo ? `Merender Video (${renderProgress}%)...` : `Ekspor Video Reels (${timelinePlan.totalDurationSec}s)`}
+              </button>
+            </StarBorder>
+          </div>
         </div>
       </div>
 
-      <p className="rounded-xl border border-[#F5C538]/25 bg-[#26042A] px-4 py-3 text-sm text-[#FFF5D6]">
-        Urutan video: Logo AVERSA (1,8 dtk) → Highlight acara (2,6 dtk) → Foto/video ({timelinePlan.mainHoldSec} dtk){includeOutro ? ' → Penutup (2,8 dtk)' : ''}. Setiap transisi berdurasi 2,2 detik, di luar durasi isi. Poster PNG tetap satu gambar.
-      </p>
+      <AnimatedContent distance={16} duration={0.55}>
+        <p className="rounded-xl border border-[#F5C538]/30 bg-[#26042A] px-4 py-3 text-sm sm:text-base leading-relaxed text-[#FFF5D6]">
+          Urutan video: Logo AVERSA (1,8 dtk) → Highlight acara (2,6 dtk) → Foto/video ({timelinePlan.mainHoldSec} dtk){includeOutro ? ' → Penutup (2,8 dtk)' : ''}. Setiap transisi berdurasi 2,2 detik, di luar durasi isi. Poster PNG tetap satu gambar.
+        </p>
+      </AnimatedContent>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Control Column */}
-        <div className="order-2 lg:order-1 lg:col-span-7 space-y-5">
+        <AnimatedContent distance={22} duration={0.6} delay={0.08} className="order-2 lg:order-1 lg:col-span-7 space-y-5">
           {/* 1. Format & Template */}
           <div className="rounded-2xl border border-[#F5C538]/30 bg-[#26042A] p-4 sm:p-5 space-y-4">
-            <h3 className="text-sm font-extrabold text-[#FDF39D]">1. Rasio Konten &amp; Bingkai AVERSA</h3>
+            <h3 className="text-base font-extrabold text-[#FDF39D]">1. Rasio Konten &amp; Bingkai AVERSA</h3>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {(Object.keys(RATIO_DIMS) as AspectRatio[]).map((r) => (
@@ -1363,6 +1447,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
                     setAssetTick((tick) => tick + 1);
                   }}
                   onSeeked={(event) => {
+                    if (animationBusyRef.current) return;
                     captureVideoPoster(event.currentTarget);
                     setAssetTick((tick) => tick + 1);
                   }}
@@ -1563,36 +1648,38 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
             </label>
             <p className="text-sm text-[#FFF5D6]/80">Video tanpa musik latar. Tambahkan musik melalui Instagram setelah mengunggah.</p>
           </div>
-        </div>
+        </AnimatedContent>
 
         {/* Right Live Preview Canvas Column */}
-        <div className="order-1 lg:order-2 lg:col-span-5 lg:sticky lg:top-20 space-y-3">
-          <div className="rounded-2xl border-2 border-[#F5C538]/50 bg-[#140117] p-3 sm:p-4 shadow-2xl">
-            <div className="flex items-center justify-between text-xs text-[#F7D160] mb-2.5">
-              <ShinyText text={`Pratinjau ${aspectRatio}`} disabled={previewPlaying || exportingVideo || window.matchMedia("(prefers-reduced-motion: reduce)").matches} className="font-bold" />
-              <span className="font-mono text-[#A0D9CA]">
-                {RATIO_DIMS[aspectRatio].w}x{RATIO_DIMS[aspectRatio].h}
-              </span>
-            </div>
-            {mediaStatus && <p role="status" className="mb-3 text-sm text-[#FDF39D]">{mediaStatus}</p>}
-            <div className="flex flex-wrap gap-2 mb-3">
-              <button type="button" onClick={() => previewPlaying ? previewStopRef.current?.() : void runAnimation(false)} disabled={exportingVideo || !!mediaStatus} className="min-h-[44px] px-4 rounded-lg border border-[#F5C538]/60 text-sm font-bold text-[#FDF39D]">{previewPlaying ? 'Hentikan Pratinjau' : 'Putar Pratinjau Video'}</button>
-              <label className="flex min-h-[44px] items-center gap-2 text-sm text-[#FFF5D6]"><input type="checkbox" checked={showSafeArea} onChange={(e) => setShowSafeArea(e.target.checked)} className="h-5 w-5 accent-[#F5C538]" /> Panduan area aman</label>
-            </div>
-            <div className="flex justify-center bg-[#0D010F] rounded-xl p-2 border border-[#F5C538]/20">
-              <div className="relative inline-block max-w-full leading-[0]">
-              <canvas
-                ref={canvasRef}
-                className="block max-w-full max-h-[65dvh] w-auto h-auto rounded-lg shadow-lg"
-              />
-              {showSafeArea && <div aria-hidden="true" className="pointer-events-none absolute border-2 border-dashed border-[#FDF39D]" style={{ left: '6%', right: '6%', top: aspectRatio === '9:16' ? '12%' : '6%', bottom: aspectRatio === '9:16' ? '12%' : '6%' }} />}
+        <AnimatedContent distance={22} duration={0.6} delay={0.14} className="order-1 lg:order-2 lg:col-span-5 lg:sticky lg:top-20 space-y-3">
+          <StarBorder color="#F5C538" speed="6s" className="w-full block">
+            <div className="rounded-2xl border border-[#F5C538]/40 bg-[#140117] p-3 sm:p-4 shadow-2xl">
+              <div className="flex items-center justify-between text-sm text-[#F7D160] mb-2.5">
+                <ShinyText text={`Pratinjau ${aspectRatio}`} disabled={previewPlaying || exportingVideo || window.matchMedia("(prefers-reduced-motion: reduce)").matches} className="font-bold" />
+                <span className="font-mono text-[#A0D9CA]">
+                  {RATIO_DIMS[aspectRatio].w}x{RATIO_DIMS[aspectRatio].h}
+                </span>
               </div>
+              {mediaStatus && <p role="status" className="mb-3 text-sm text-[#FDF39D]">{mediaStatus}</p>}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button type="button" onClick={() => previewPlaying ? previewStopRef.current?.() : void runAnimation(false)} disabled={exportingVideo || !!mediaStatus} className="min-h-[44px] px-4 rounded-lg border border-[#F5C538]/60 text-sm font-bold text-[#FDF39D] hover:bg-[#310603]">{previewPlaying ? 'Hentikan Pratinjau' : 'Putar Pratinjau Video'}</button>
+                <label className="flex min-h-[44px] items-center gap-2 text-sm text-[#FFF5D6]"><input type="checkbox" checked={showSafeArea} onChange={(e) => setShowSafeArea(e.target.checked)} className="h-5 w-5 accent-[#F5C538]" /> Panduan area aman</label>
+              </div>
+              <div className="flex justify-center bg-[#0D010F] rounded-xl p-2 border border-[#F5C538]/20">
+                <div className="relative inline-block max-w-full leading-[0]">
+                <canvas
+                  ref={canvasRef}
+                  className="block max-w-full max-h-[65dvh] w-auto h-auto rounded-lg shadow-lg"
+                />
+                {showSafeArea && <div aria-hidden="true" className="pointer-events-none absolute border-2 border-dashed border-[#FDF39D]" style={{ left: '6%', right: '6%', top: aspectRatio === '9:16' ? '12%' : '6%', bottom: aspectRatio === '9:16' ? '12%' : '6%' }} />}
+                </div>
+              </div>
+              {photos.length === 0 && !videoClip && !previewPlaying && !exportingVideo && <p className="mt-2.5 text-sm text-[#FFF5D6]/90">Unggah foto atau video untuk mengisi frame.</p>}
+              {showSafeArea && <p className="mt-2 text-sm leading-relaxed text-[#FFF5D6]/90">Letakkan wajah dan teks penting di dalam garis. Panduan ini tidak ikut diekspor; area tampilan dapat berbeda antarplatform.</p>}
             </div>
-            {photos.length === 0 && !videoClip && !previewPlaying && !exportingVideo && <p className="mt-2 text-sm text-[#FFF5D6]/85">Unggah foto atau video untuk mengisi frame.</p>}
-            {showSafeArea && <p className="mt-2 text-xs leading-relaxed text-[#FFF5D6]">Letakkan wajah dan teks penting di dalam garis. Panduan ini tidak ikut diekspor; area tampilan dapat berbeda antarplatform.</p>}
-          </div>
+          </StarBorder>
           {resultUrl && <div className="rounded-2xl border border-[#F5C538]/40 bg-[#250428] p-4 space-y-3"><h3 className="text-base font-bold text-[#FDF39D]">Hasil Video MP4</h3><video controls playsInline src={resultUrl} className="w-full max-h-[55dvh] rounded-lg" /><a href={resultUrl} download={`aversa44-${template}-${aspectRatio.replace(':', 'x')}.mp4`} className="inline-flex min-h-[44px] items-center rounded-lg bg-[#F5C538] px-4 text-sm font-bold text-[#310603]">Unduh Video MP4</a></div>}
-        </div>
+        </AnimatedContent>
       </div>
     </div>
   );

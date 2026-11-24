@@ -4,6 +4,12 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.4 - 2026-11-24
+
+- Media Studio: Fix video playback/export freezing around 10s by unlocking `<video>` synchronously on user gesture, guarding `onSeeked` against mid-playback state updates, and adding a playback stall recovery watchdog.
+- Media Studio: Enlarge canvas typography (headline, subtitle, badge, footer, header, and sponsor labels) for crisp mobile readability.
+- Media Studio: Enrich canvas and studio UI with ReactBits (`SplitText`, `StarBorder`, `AnimatedContent`, `AuroraBackground`) and Anime.js motion, plus animated corner filigrees, drifting golden stardust particles, and badge shimmer sweep.
+
 ## 0.2.3 - 2026-11-24
 
 - Media Studio (Mobile iOS & Android): Fix blank video canvas & missing audio on mobile browsers by rendering the source `<video>` offscreen (`opacity-0` 1x1px) instead of `display: none`, forcing first-frame GPU decode on load, and attaching temporary probe `<video>` elements to `document.body` with `loadedmetadata` fallback.
