@@ -2,7 +2,7 @@ export const IMAGE_INPUT_ACCEPT = 'image/*,.heic,.heif';
 export const VIDEO_INPUT_ACCEPT = 'video/*,.mov,.qt,.mp4,.m4v';
 
 export interface NormalizedImage { dataUrl: string; width: number; height: number }
-export interface PreparedVideo { objectUrl: string; durationSec: number; width: number; height: number }
+export interface PreparedVideo { objectUrl: string; durationSec: number; width: number; height: number; posterDataUrl?: string }
 
 let ffmpegPromise: Promise<import('@ffmpeg/ffmpeg').FFmpeg> | null = null;
 async function getFfmpeg() {
@@ -133,21 +133,40 @@ async function probeVideo(url: string): Promise<PreparedVideo> {
   video.playsInline = true;
   video.setAttribute('playsinline', '');
   video.setAttribute('webkit-playsinline', '');
-  video.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+  video.style.cssText = 'position:fixed;bottom:0;right:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1;';
   document.body?.appendChild(video);
 
   return new Promise((resolve, reject) => {
     let settled = false;
     let metaTimer = 0;
     const timer = window.setTimeout(() => finish(false), 15000);
+    const captureSnap = () => {
+      if (!video.videoWidth || !video.videoHeight || video.readyState < 2) return undefined;
+      try {
+        const c = document.createElement('canvas');
+        const scale = Math.min(1, 720 / Math.max(video.videoWidth, video.videoHeight));
+        c.width = Math.max(1, Math.round(video.videoWidth * scale));
+        c.height = Math.max(1, Math.round(video.videoHeight * scale));
+        const cx = c.getContext('2d');
+        if (cx) {
+          cx.drawImage(video, 0, 0, c.width, c.height);
+          return c.toDataURL('image/jpeg', 0.85);
+        }
+      } catch {
+        // ignore
+      }
+      return undefined;
+    };
     const finish = (ok: boolean) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
       window.clearTimeout(metaTimer);
-      const result = { objectUrl: url, durationSec: video.duration, width: video.videoWidth, height: video.videoHeight };
+      const posterDataUrl = ok ? captureSnap() : undefined;
+      const result: PreparedVideo = { objectUrl: url, durationSec: video.duration, width: video.videoWidth, height: video.videoHeight, posterDataUrl };
       video.onloadeddata = null;
       video.onloadedmetadata = null;
+      video.onseeked = null;
       video.onerror = null;
       video.removeAttribute('src');
       video.load();
@@ -156,10 +175,18 @@ async function probeVideo(url: string): Promise<PreparedVideo> {
       else reject(new Error('Video tidak dapat diputar di browser ini.'));
     };
     video.onloadeddata = () => finish(true);
+    video.onseeked = () => {
+      if (video.readyState >= 2) finish(true);
+    };
     video.onloadedmetadata = () => {
       if (video.videoWidth > 0 && video.videoHeight > 0 && Number.isFinite(video.duration) && video.duration > 0) {
-        // Give loadeddata a short window on mobile, otherwise resolve from metadata so iOS Safari never hangs
-        metaTimer = window.setTimeout(() => finish(true), 250);
+        try {
+          // Force mobile browsers (especially iOS Safari) to decode the first frame
+          video.currentTime = Math.min(0.05, Math.max(0, video.duration - 0.05));
+        } catch {
+          // ignore
+        }
+        metaTimer = window.setTimeout(() => finish(true), 500);
       }
     };
     video.onerror = () => finish(false);

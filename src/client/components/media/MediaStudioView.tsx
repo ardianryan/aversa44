@@ -394,7 +394,9 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       ctx.restore();
 
       // 2. Uploaded User Media Layer (Photo collage / Slideshow / Trimmed Video)
-      const isLiveOrPhotoCanvas = mediaMode === 'photo' ? photos.length > 0 : Boolean(videoElRef.current && videoElRef.current.readyState >= 2);
+      const isLiveOrPhotoCanvas = mediaMode === 'photo'
+        ? photos.length > 0
+        : Boolean((videoElRef.current && videoElRef.current.readyState >= 2) || videoClip?.posterDataUrl);
       if (isLiveOrPhotoCanvas && (template === 'live_recap' || photos.length > 0 || mediaMode === 'video')) {
         ctx.save();
         ctx.filter = activeFilter;
@@ -408,6 +410,9 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
 
         if (mediaMode === 'video' && videoElRef.current && videoElRef.current.readyState >= 2) {
           drawCoverImage(ctx, videoElRef.current, mediaX, mediaTop, mediaW, mediaH, videoClip?.framing);
+        } else if (mediaMode === 'video' && videoClip?.posterDataUrl) {
+          const pImg = ensureImage(videoClip.posterDataUrl);
+          if (pImg) drawCoverImage(ctx, pImg, mediaX, mediaTop, mediaW, mediaH, videoClip.framing);
         } else if (mediaMode === 'photo' && photos.length > 0) {
           if (isAnimated) {
             const slideState = computePhotoSlideState(
@@ -936,7 +941,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         trimEnd: prep.durationSec,
         mutedOriginal: false,
         framing: { zoom: 1, panX: 0, panY: 0 },
-        posterDataUrl: '',
+        posterDataUrl: prep.posterDataUrl || '',
       });
       setMediaMode('video');
     } catch (err: any) {
@@ -1442,6 +1447,14 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
                   preload="auto"
                   playsInline
                   muted
+                  onLoadedMetadata={(event) => {
+                    const video = event.currentTarget;
+                    if (animationBusyRef.current) return;
+                    const target = videoClip.coverTime ?? videoClip.trimStart;
+                    try {
+                      video.currentTime = target > 0 ? target : Math.min(0.05, Math.max(0, video.duration - 0.05));
+                    } catch {}
+                  }}
                   onLoadedData={async (event) => {
                     const video = event.currentTarget;
                     if (!animationBusyRef.current) {
@@ -1464,12 +1477,17 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
                     captureVideoPoster(video);
                     setAssetTick((tick) => tick + 1);
                   }}
+                  onCanPlay={(event) => {
+                    if (animationBusyRef.current) return;
+                    captureVideoPoster(event.currentTarget);
+                    setAssetTick((tick) => tick + 1);
+                  }}
                   onSeeked={(event) => {
                     if (animationBusyRef.current) return;
                     captureVideoPoster(event.currentTarget);
                     setAssetTick((tick) => tick + 1);
                   }}
-                  className="fixed -left-[9999px] top-0 w-px h-px opacity-0 pointer-events-none"
+                  className="fixed bottom-0 right-0 w-[2px] h-[2px] opacity-[0.01] pointer-events-none -z-10"
                 />
 
                 {videoClip.posterDataUrl && (

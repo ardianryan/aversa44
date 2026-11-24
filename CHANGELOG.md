@@ -4,6 +4,10 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.6 - 2026-11-24
+
+- Media Studio (Mobile): Fix invisible uploaded video on iOS/Android by keeping the source `<video>` inside the viewport (`2x2px`, `opacity: 0.01`) instead of `-9999px` offscreen (preventing mobile WebKit/Blink compositor culling), forcing a 0.05s frame decode on `loadedmetadata`, and capturing/rendering a poster snapshot fallback during `probeVideo`.
+
 ## 0.2.5 - 2026-11-24
 
 - Media Studio: Fix social media upload spinning/rejection by always transcoding `MediaRecorder` output (including Chrome/Safari fragmented MP4) to standard Constant Frame Rate (`30fps`), H.264 High@L4.1 (`yuv420p`, keyframe interval `60`), AAC 48kHz stereo, `+faststart` MP4.
