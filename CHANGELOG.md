@@ -4,6 +4,10 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.7 - 2026-11-24
+
+- Media Studio: Use rounded cream pill containers (`#FFF5D6` with subtle gold border) and cleaner spacing/padding around boxed sponsor logos in the canvas credits strip.
+
 ## 0.2.6 - 2026-11-24
 
 - Media Studio (Mobile): Fix invisible uploaded video on iOS/Android by keeping the source `<video>` inside the viewport (`2x2px`, `opacity: 0.01`) instead of `-9999px` offscreen (preventing mobile WebKit/Blink compositor culling), forcing a 0.05s frame decode on `loadedmetadata`, and capturing/rendering a poster snapshot fallback during `probeVideo`.

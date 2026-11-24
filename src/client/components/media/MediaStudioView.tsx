@@ -674,10 +674,23 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         const drawLogo = (src: string, x: number, y: number, width: number, height: number, boxed = false) => {
           const img = ensureImage(src);
           if (!img) return;
-          const scale = Math.min((width - u * 0.025) / img.naturalWidth, (height - u * 0.012) / img.naturalHeight);
+          const padX = boxed ? Math.round(u * 0.018) : 0;
+          const padY = boxed ? Math.round(u * 0.011) : 0;
+          const marginX = boxed ? u * 0.048 : u * 0.03;
+          const marginY = boxed ? u * 0.026 : u * 0.014;
+          const scale = Math.min((width - marginX) / img.naturalWidth, (height - marginY) / img.naturalHeight);
           const lw = img.naturalWidth * scale, lh = img.naturalHeight * scale;
           const lx = x + (width - lw) / 2, ly = y + (height - lh) / 2;
-          if (boxed) { ctx.fillStyle = '#FFF5D6'; ctx.fillRect(lx - 4, ly - 4, lw + 8, lh + 8); }
+          if (boxed) {
+            ctx.save();
+            drawRoundRectPath(ctx, lx - padX, ly - padY, lw + padX * 2, lh + padY * 2, Math.round(u * 0.014));
+            ctx.fillStyle = '#FFF5D6';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(245, 197, 56, 0.45)';
+            ctx.lineWidth = Math.max(1, u * 0.0015);
+            ctx.stroke();
+            ctx.restore();
+          }
           ctx.drawImage(img, lx, ly, lw, lh);
         };
         ctx.textAlign = 'center';
