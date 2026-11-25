@@ -4,6 +4,11 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.13 - 2026-11-25
+
+- OBS Live Broadcast (`/obs`): Redesign overlay composition to remove forced stacked sponsor boxes below camera presets (`lower_third`, `guest_spotlight`, `rundown_schedule`, `corner_bug`), align `Official Media Partner` horizontally at top-right opposite the school identity at top-left, use a single-row left-to-right sponsor ribbon at the bottom on `full_frame`, integrate 1 rotating sponsor inside `lower_third`, and preserve `standby_soon` and `sponsor_wall`.
+- OBS Live Broadcast Motion: Keep top header static across camera preset switches and add `BroadcastPanelMotion` (Anime.js v4 + ReactBits) supporting all 5 transition presets (`broadcast_wipe`, `slide_edge`, `zoom_pop`, `fade_smooth`, `cut`) plus live-text-update golden sheen without closing the Lower-Third box.
+
 ## 0.2.12 - 2026-11-25
 
 - Media Studio (`/office/media-studio`): Set default aspect ratio to `9:16` (Portrait for Reels / TikTok / Story).

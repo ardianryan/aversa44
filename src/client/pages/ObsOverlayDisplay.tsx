@@ -1,5 +1,6 @@
 import { StageOrnaments } from '../components/motion/StageOrnaments.tsx';
 import { SceneMotion } from '../components/motion/SceneMotion.tsx';
+import { BroadcastPanelMotion, type BroadcastPanelOrigin } from '../components/motion/BroadcastPanelMotion.tsx';
 import AnimatedContent from '../components/reactbits/AnimatedContent.tsx';
 import { useAnimatedSwap } from '../components/reactbits/useAnimatedSwap.ts';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -129,15 +130,33 @@ export const ObsOverlayDisplay: React.FC = () => {
     return () => window.clearInterval(t);
   }, []);
 
-  const visualKey = incomingState ? JSON.stringify([
-    incomingState.overlay.layout_preset, incomingState.overlay.theme_mode, incomingState.overlay.transition_preset,
-    incomingState.overlay.lower_third_title, incomingState.overlay.lower_third_subtitle, incomingState.overlay.corner_bug_text,
-    incomingState.overlay.show_countdown, incomingState.overlay.show_sponsors,
-    incomingState.eventMeta, incomingState.sponsors, incomingState.timeline,
+  const modeKey = incomingState ? JSON.stringify([
+    incomingState.overlay.layout_preset,
+    incomingState.overlay.theme_mode,
+    incomingState.overlay.transition_preset,
   ]) : '';
-  const scene = useAnimatedSwap(incomingState, visualKey, reducedMotion || incomingState?.overlay.transition_preset === 'cut');
+  const pulseKey = incomingState ? JSON.stringify([
+    incomingState.overlay.lower_third_title,
+    incomingState.overlay.lower_third_subtitle,
+    incomingState.overlay.corner_bug_text,
+    incomingState.overlay.show_countdown,
+    incomingState.overlay.show_sponsors,
+  ]) : '';
+
+  const motionDisabled = reducedMotion || incomingState?.overlay.transition_preset === 'cut';
+  const scene = useAnimatedSwap(incomingState, modeKey, motionDisabled);
   const state = scene.value;
   const sponsorSwap = useAnimatedSwap(sponsorIdx, String(Math.floor(sponsorIdx / 2)), reducedMotion || state?.overlay.transition_preset === 'cut');
+
+  const headerCameraPreset = Boolean(incomingState && incomingState.overlay.layout_preset !== 'standby_soon');
+  const showHeaderBug = Boolean(headerCameraPreset && incomingState?.overlay.layout_preset === 'corner_bug');
+  const showHeaderPartner = Boolean(
+    headerCameraPreset &&
+    incomingState?.overlay.layout_preset !== 'sponsor_wall' &&
+    incomingState?.eventMeta?.officialMediaPartner
+  );
+  const bugSwap = useAnimatedSwap(showHeaderBug, showHeaderBug ? 'on' : 'off', motionDisabled);
+  const partnerSwap = useAnimatedSwap(showHeaderPartner, showHeaderPartner ? 'on' : 'off', motionDisabled);
 
   // Live countdown ticker
   useEffect(() => {
@@ -177,7 +196,7 @@ export const ObsOverlayDisplay: React.FC = () => {
     : 'bg-[#18021B]/88 border-[#F5C538]/45 text-[#FFF5D6] backdrop-blur-md';
 
   const transitionAnimClass = overlay.transition_preset === 'cut' ? 'obs-enter-cut' : '';
-  const reveal = (text: string, centered = false) => <SplitText key={text} text={text} className={centered ? 'justify-center' : ''} delayMs={120} staggerMs={35} reducedMotion={reducedMotion || overlay.transition_preset === 'cut'} />;
+  const reveal = (text: string, centered = false) => <SplitText key={text} text={text} className={centered ? 'justify-center' : ''} delayMs={90} staggerMs={30} reducedMotion={motionOff} />;
   const rankedSponsors = [...sponsors].filter(sp => sp.is_active).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
   const primarySponsors = rankedSponsors.slice(0, 3);
   const supporting = rankedSponsors.slice(3);
@@ -187,8 +206,38 @@ export const ObsOverlayDisplay: React.FC = () => {
   const supportingRows = Math.max(1, Math.ceil(visibleSponsors.length / 6));
   const supportingCols = visibleSponsors.length > 0 ? Math.min(6, Math.ceil(visibleSponsors.length / supportingRows)) : 1;
 
+  const ribbonPageSize = 5;
+  const ribbonPage = Math.floor(sponsorSwap.value / 2) % Math.max(1, Math.ceil(supporting.length / ribbonPageSize));
+  const ribbonSupporting = supporting.slice(ribbonPage * ribbonPageSize, ribbonPage * ribbonPageSize + ribbonPageSize);
+  const activeRotatingSponsor = rankedSponsors.length > 0 ? rankedSponsors[sponsorIdx % rankedSponsors.length] : null;
+
+  const staticFrame = (children: React.ReactNode, className = '') => (
+    <StarBorder disabled={motionOff} speed="8s" className={`obs-frame ${className}`}>
+      <div className={`obs-panel ${panelStyle}`}>{children}</div>
+    </StarBorder>
+  );
+
+  const motionFrame = (
+    children: React.ReactNode,
+    className = '',
+    options: { origin?: BroadcastPanelOrigin; leaving?: boolean; pulse?: string } = {},
+  ) => (
+    <BroadcastPanelMotion
+      preset={overlay.transition_preset}
+      origin={options.origin ?? 'bottom'}
+      leaving={options.leaving ?? scene.leaving}
+      pulseKey={options.pulse ?? ''}
+      disabled={motionOff}
+      className={className}
+    >
+      <StarBorder disabled={motionOff} speed="8s" className="obs-frame">
+        <div className={`obs-panel ${panelStyle}`}>{children}</div>
+      </StarBorder>
+    </BroadcastPanelMotion>
+  );
+
   const frame = (children: React.ReactNode, className = '') => (
-    <StarBorder disabled={reducedMotion || overlay.transition_preset === 'cut'} speed="8s" className={`obs-frame ${className}`}>
+    <StarBorder disabled={motionOff} speed="8s" className={`obs-frame ${className}`}>
       <SceneMotion disabled={motionOff} className={`obs-panel ${panelStyle}`}>{children}</SceneMotion>
     </StarBorder>
   );
@@ -267,6 +316,43 @@ export const ObsOverlayDisplay: React.FC = () => {
 
   const credits = renderCredits();
 
+  const renderFullFrameRibbon = () => (
+    <div className="obs-full-ribbon">
+      <span className="obs-full-ribbon-label">Didukung oleh</span>
+      <div className="obs-ribbon-group">
+        {primarySponsors.map((sp) => (
+          <div key={sp.id} className="obs-sponsor-bar-item">
+            {renderSponsorLogo(sp, 'obs-ribbon-primary-logo')}
+          </div>
+        ))}
+      </div>
+      {ribbonSupporting.length > 0 && (
+        <>
+          <span aria-hidden="true" className="obs-ribbon-divider" />
+          <div
+            key={ribbonPage}
+            className={`obs-ribbon-group ${sponsorSwap.leaving ? 'obs-logos-leaving' : ''}`}
+          >
+            {ribbonSupporting.map((sp, idx) => (
+              <AnimatedContent
+                key={sp.id}
+                trigger="mount"
+                duration={0.55}
+                distance={motionOff ? 0 : 10}
+                delay={motionOff ? 0 : idx * 0.04}
+                animateOpacity={!motionOff}
+              >
+                <div className="obs-sponsor-bar-item">
+                  {renderSponsorLogo(sp, 'obs-ribbon-supporting-logo')}
+                </div>
+              </AnimatedContent>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   const identityLockup = (
     <div className="obs-full-identity">
       <img className="obs-full-school" src="/assets/extracted/logo-sman1gedeg.png" alt="SMAN 1 Gedeg" />
@@ -275,61 +361,199 @@ export const ObsOverlayDisplay: React.FC = () => {
     </div>
   );
 
+  const headerOverlay = incomingState?.overlay || overlay;
+  const headerPartnerUrl = incomingState?.eventMeta?.officialMediaPartner || eventMeta.officialMediaPartner;
+
   return (
     <div className={`obs-stage ${isLight ? 'obs-light' : ''} ${reducedMotion ? 'obs-still' : ''} ${hasCredits ? 'obs-has-credits' : ''} ${scene.leaving ? 'obs-scene-leaving' : ''}`} data-layout={overlay.layout_preset}>
-      {isCameraPreset && (
+      {headerCameraPreset && (
         <div aria-hidden="true" className="obs-edge">
           {['top-0 left-0', 'top-0 right-0 scale-x-[-1]', 'bottom-0 left-0 scale-y-[-1]', 'bottom-0 right-0 scale-[-1]'].map(position => (
             <img key={position} src="/assets/brandkit/item-ornate-corner-filigree.svg" alt="" className={`absolute w-10 sm:w-16 opacity-75 ${position}`} />
           ))}
         </div>
       )}
+
+      {/* Persistent TV-style Top Header (never flickers across camera preset switches) */}
+      {headerCameraPreset && (
+        <div className="obs-full-header">
+          <div className="obs-header-left">
+            {staticFrame(identityLockup, 'obs-full-brand')}
+            {bugSwap.value && motionFrame(
+              <div className="obs-bug">
+                <div>
+                  <h1 className="obs-bug-label">{reveal(headerOverlay.corner_bug_text)}</h1>
+                  {headerOverlay.show_countdown && <p data-motion-detail className="obs-subtitle">{countdownText}</p>}
+                </div>
+              </div>,
+              'obs-bug-pill',
+              { origin: 'left', leaving: bugSwap.leaving, pulse: headerOverlay.corner_bug_text }
+            )}
+          </div>
+          {partnerSwap.value && headerPartnerUrl && motionFrame(
+            <div className="obs-full-partner">
+              <span className="obs-full-partner-label">
+                <ShinyText text="Official Media Partner" disabled={motionOff} />
+              </span>
+              <span aria-hidden="true" className="obs-partner-divider" />
+              <img src={headerPartnerUrl} alt="Official Media Partner" />
+            </div>,
+            'obs-full-partner-frame',
+            { origin: 'top', leaving: partnerSwap.leaving }
+          )}
+        </div>
+      )}
+
       <div key={`composition-${scene.key}`} className={`obs-composition ${transitionAnimClass}`}>
         {isCameraPreset && (
-          <div className="obs-full-header">
-            <div className="obs-header-left">
-              {frame(identityLockup, 'obs-full-brand')}
-              {overlay.layout_preset === 'corner_bug' && frame(
-                <div className="obs-bug">
-                  <div>
-                    <h1 className="obs-bug-label">{reveal(overlay.corner_bug_text)}</h1>
-                    {overlay.show_countdown && <p data-motion-detail className="obs-subtitle">{countdownText}</p>}
-                  </div>
-                </div>,
-                'obs-bug-pill'
-              )}
-            </div>
-          </div>
-        )}
-
-        {isCameraPreset && (
           <div className="obs-bottom-stack">
+            {overlay.layout_preset === 'full_frame' && hasSponsors && (
+              <div className="obs-full-ribbon-wrap">
+                {motionFrame(renderFullFrameRibbon(), 'obs-full-ribbon-frame', { origin: 'bottom' })}
+              </div>
+            )}
             {overlay.layout_preset === 'lower_third' && (
-              frame(<div className="obs-lower-grid">
-                <div className="obs-copy"><p data-motion-detail className="obs-eyebrow">{overlay.corner_bug_text}</p><h1>{reveal(overlay.lower_third_title)}</h1><p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p></div>
-                <div className="obs-meta">
-                  {overlay.show_countdown && <div className="obs-countdown"><span>Puncak acara</span><strong>{countdownText}</strong></div>}
-                </div>
-              </div>)
+              motionFrame(
+                <div className="obs-lower-grid">
+                  <div className="obs-copy">
+                    <p data-motion-detail className="obs-eyebrow">
+                      <ShinyText text={overlay.corner_bug_text} disabled={motionOff} />
+                    </p>
+                    <h1>{reveal(overlay.lower_third_title)}</h1>
+                    <AnimatedContent
+                      key={`sub-${overlay.lower_third_subtitle}`}
+                      trigger="mount"
+                      wipe={motionOff ? 'none' : 'right'}
+                      blur={motionOff ? 0 : 4}
+                      distance={motionOff ? 0 : 18}
+                      duration={0.55}
+                      animateOpacity={!motionOff}
+                    >
+                      <p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p>
+                    </AnimatedContent>
+                  </div>
+                  {(overlay.show_countdown || (hasSponsors && activeRotatingSponsor)) && (
+                    <div className="obs-meta">
+                      {overlay.show_countdown && (
+                        <div className="obs-countdown">
+                          <span>Puncak acara</span>
+                          <strong>{countdownText}</strong>
+                        </div>
+                      )}
+                      {hasSponsors && activeRotatingSponsor && (
+                        <div className={`obs-inline-sponsor ${overlay.show_countdown ? 'obs-inline-sponsor-divided' : ''}`}>
+                          <span className="obs-inline-sponsor-label">Didukung oleh</span>
+                          <AnimatedContent
+                            key={`rot-${activeRotatingSponsor.id}`}
+                            trigger="mount"
+                            distance={motionOff ? 0 : 12}
+                            scale={motionOff ? 1 : 0.94}
+                            blur={motionOff ? 0 : 4}
+                            duration={0.55}
+                            animateOpacity={!motionOff}
+                          >
+                            <div className="obs-inline-sponsor-slot">
+                              {renderSponsorLogo(activeRotatingSponsor, 'obs-inline-sponsor-logo')}
+                            </div>
+                          </AnimatedContent>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>,
+                '',
+                { origin: 'bottom', pulse: pulseKey }
+              )
             )}
             {overlay.layout_preset === 'guest_spotlight' && (
-              frame(<div className="obs-guest-grid">
-                <div className="obs-guest-art" aria-hidden="true"><img src="/assets/extracted/guest-niken-salindry.png" alt="" /><img src="/assets/extracted/guest-kembange-jagad.png" alt="" /></div>
-                <div className="obs-copy"><p data-motion-detail className="obs-eyebrow">Panggung AVERSA 44</p><h1>{reveal(overlay.lower_third_title)}</h1><p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p><p className="obs-detail">{eventMeta.peakDateLabel || '17 Desember 2026'} • {eventMeta.guestStarVenue || 'Lapangan Tengah SMAN 1 Gedeg'}</p></div>
-              </div>)
+              motionFrame(
+                <div className="obs-guest-grid">
+                  <AnimatedContent
+                    trigger="mount"
+                    wipe={motionOff ? 'none' : 'up'}
+                    distance={motionOff ? 0 : 20}
+                    stagger={motionOff ? 0 : 0.12}
+                    duration={0.65}
+                    animateOpacity={!motionOff}
+                    className="obs-guest-art"
+                    aria-hidden="true"
+                  >
+                    <img src="/assets/extracted/guest-niken-salindry.png" alt="" />
+                    <img src="/assets/extracted/guest-kembange-jagad.png" alt="" />
+                  </AnimatedContent>
+                  <div className="obs-copy">
+                    <p data-motion-detail className="obs-eyebrow">
+                      <ShinyText text="Panggung AVERSA 44" disabled={motionOff} />
+                    </p>
+                    <h1>{reveal(overlay.lower_third_title)}</h1>
+                    <AnimatedContent
+                      key={`gs-sub-${overlay.lower_third_subtitle}`}
+                      trigger="mount"
+                      wipe={motionOff ? 'none' : 'right'}
+                      blur={motionOff ? 0 : 4}
+                      distance={motionOff ? 0 : 16}
+                      duration={0.55}
+                      animateOpacity={!motionOff}
+                    >
+                      <p data-motion-detail className="obs-subtitle">{overlay.lower_third_subtitle}</p>
+                    </AnimatedContent>
+                    <p data-motion-detail className="obs-detail">
+                      {eventMeta.peakDateLabel || '17 Desember 2026'} • {eventMeta.guestStarVenue || 'Lapangan Tengah SMAN 1 Gedeg'}
+                    </p>
+                  </div>
+                </div>,
+                '',
+                { origin: 'bottom', pulse: pulseKey }
+              )
             )}
             {overlay.layout_preset === 'rundown_schedule' && (
               <div className="obs-rundown">
-                {frame(<><div className="obs-heading"><h1>{reveal('Rangkaian Acara')}</h1></div>
-                  <div className="obs-schedule-list">{timeline.length ? timeline.slice(0, 4).map((ev, index) => <div key={ev.id} className="obs-schedule-row" style={{animationDelay: `${180 + index * 110}ms`}}><span className="obs-event-number">{String(index + 1).padStart(2, '0')}</span><div><p data-motion-detail className="obs-subtitle">{ev.date_label}</p><h2>{ev.title}</h2></div></div>) : <p>Rangkaian acara akan diumumkan.</p>}</div>
-                </>)}
+                {motionFrame(
+                  <>
+                    <div className="obs-heading">
+                      <h1>{reveal('Rangkaian Acara')}</h1>
+                    </div>
+                    <AnimatedContent
+                      trigger="mount"
+                      direction="horizontal"
+                      distance={motionOff ? 0 : 20}
+                      stagger={motionOff ? 0 : 0.08}
+                      duration={0.55}
+                      animateOpacity={!motionOff}
+                      className="obs-schedule-list"
+                    >
+                      {timeline.length ? timeline.slice(0, 4).map((ev, index) => (
+                        <div key={ev.id} className="obs-schedule-row">
+                          <span className="obs-event-number">{String(index + 1).padStart(2, '0')}</span>
+                          <div>
+                            <p className="obs-subtitle">{ev.date_label}</p>
+                            <h2>{ev.title}</h2>
+                          </div>
+                        </div>
+                      )) : <p>Rangkaian acara akan diumumkan.</p>}
+                    </AnimatedContent>
+                  </>,
+                  '',
+                  { origin: 'left' }
+                )}
               </div>
             )}
             {overlay.layout_preset === 'sponsor_wall' && (
-              frame(<><div className="obs-heading"><div><p data-motion-detail className="obs-eyebrow">AVERSA 44</p><h1>{reveal('Terima kasih, mitra & sponsor')}</h1></div></div>{hasCredits ? renderCredits(true) : <p>Belum ada logo mitra yang ditampilkan.</p>}</>)
-            )}
-            {overlay.layout_preset !== 'sponsor_wall' && hasCredits && (
-              <div className="obs-sponsor-strip-wrap">{frame(renderSponsorBar(true), 'obs-sponsor-strip-frame')}</div>
+              motionFrame(
+                <>
+                  <div className="obs-heading">
+                    <div>
+                      <p data-motion-detail className="obs-eyebrow">
+                        <ShinyText text="AVERSA 44" disabled={motionOff} />
+                      </p>
+                      <h1>{reveal('Terima kasih, mitra & sponsor')}</h1>
+                    </div>
+                  </div>
+                  {hasCredits ? renderCredits(true) : <p>Belum ada logo mitra yang ditampilkan.</p>}
+                </>,
+                '',
+                { origin: 'bottom' }
+              )
             )}
           </div>
         )}

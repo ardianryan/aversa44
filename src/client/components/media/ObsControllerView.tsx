@@ -14,13 +14,13 @@ interface ObsControllerViewProps {
 }
 
 const LAYOUT_PRESETS: Array<{ id: ObsLayoutPreset; label: string; desc: string }> = [
-  { id: 'full_frame', label: 'Frame Video Penuh', desc: 'Identitas acara di kiri atas, panel Official Media Partner + sponsor di bawah, area tengah transparan' },
-  { id: 'lower_third', label: 'Lower-Third Broadcast', desc: 'Bar bawah penuh dengan judul siaran, logo sekolah, countdown & panel sponsor terpadu' },
-  { id: 'corner_bug', label: 'Corner Bug & Sponsor', desc: 'Badge LIVE pojok kiri atas + panel ringkas Official Media Partner & sponsor di bawah' },
-  { id: 'guest_spotlight', label: 'Guest Star Spotlight', desc: 'Kartu bintang tamu Niken Salindry & Kembange Jagad dengan panel sponsor di bawah' },
-  { id: 'rundown_schedule', label: 'Rundown Jadwal', desc: 'Daftar agenda resmi AVERSA 44 di sisi kiri layar' },
+  { id: 'full_frame', label: 'Frame Video Penuh', desc: 'Identitas sekolah kiri atas, Official Media Partner kanan atas, dan 1 baris tipis sponsor kiri-ke-kanan di bawah' },
+  { id: 'lower_third', label: 'Lower-Third Broadcast', desc: 'Bar bawah tunggal dengan judul siaran, countdown, dan 1 sponsor rotasi halus di sisi kanan' },
+  { id: 'corner_bug', label: 'Corner Bug & Partner', desc: 'Badge LIVE di kiri atas, Official Media Partner kanan atas, dan area bawah bersih transparan' },
+  { id: 'guest_spotlight', label: 'Guest Star Spotlight', desc: 'Kartu bintang tamu Niken Salindry & Kembange Jagad bersih tanpa kotak sponsor tambahan' },
+  { id: 'rundown_schedule', label: 'Rundown Jadwal', desc: 'Daftar agenda resmi AVERSA 44 di sisi kiri layar tanpa kotak sponsor tambahan' },
   { id: 'standby_soon', label: 'Standby / Starting Soon', desc: 'Layar tunggu teater lengkap untuk jeda atau sebelum siaran dimulai' },
-  { id: 'sponsor_wall', label: 'Sponsor Showcase', desc: 'Bar penghargaan seluruh sponsor resmi & Official Media Partner di bagian bawah' },
+  { id: 'sponsor_wall', label: 'Sponsor Showcase', desc: 'Papan penghargaan seluruh sponsor resmi & Official Media Partner di bagian bawah' },
 ];
 
 const TRANSITIONS: Array<{ id: ObsTransitionPreset; label: string }> = [
