@@ -32,24 +32,62 @@ export function walletReply(verified: boolean): string {
   return greetings[crypto.randomInt(greetingCount)] + ' ' + options[crypto.randomInt(options.length)];
 }
 
-export async function sendWalletReply(phone: string, verified: boolean): Promise<void> {
+function getGowaConfig() {
   const base = process.env.GOWA_BASE_URL?.replace(/\/+$/, '');
-  const username = process.env.GOWA_USERNAME, password = process.env.GOWA_PASSWORD;
-  if (!base || !username || !password || !process.env.GOWA_SESSION_ID) throw new Error('GOWA reply is not configured');
+  const username = process.env.GOWA_USERNAME;
+  const password = process.env.GOWA_PASSWORD;
+  const sessionId = process.env.GOWA_SESSION_ID;
+  if (!base || !username || !password || !sessionId) throw new Error('GOWA reply is not configured');
   const parsed = new URL(base);
   const isLoopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsed.hostname);
   const tailnet = /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/.test(parsed.hostname);
   if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && (isLoopback || (tailnet && process.env.GOWA_ALLOW_TAILNET_HTTP === '1')))) {
     throw new Error('GOWA requires HTTPS or an explicitly allowed private connection');
   }
+  return {
+    base,
+    sessionId,
+    authHeader: 'Basic ' + Buffer.from(username + ':' + password).toString('base64'),
+  };
+}
+
+export async function sendWhatsappText(phone: string, message: string): Promise<void> {
+  const { base, sessionId, authHeader } = getGowaConfig();
   const response = await fetch(base + '/send/message', {
-    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
+    method: 'POST',
+    redirect: 'error',
+    signal: AbortSignal.timeout(8000),
     headers: {
       'Content-Type': 'application/json',
-      Authorization: 'Basic ' + Buffer.from(username + ':' + password).toString('base64'),
-      'X-Device-Id': process.env.GOWA_SESSION_ID,
+      Authorization: authHeader,
+      'X-Device-Id': sessionId,
     },
-    body: JSON.stringify({ phone: phone + '@s.whatsapp.net', message: walletReply(verified) }),
+    body: JSON.stringify({ phone: phone + '@s.whatsapp.net', message }),
   });
-  if (!response.ok) throw new Error('GOWA rejected reply');
+  if (!response.ok) throw new Error('GOWA rejected message');
+}
+
+export async function sendWhatsappMedia(phone: string, imageUrl: string, caption: string): Promise<void> {
+  const { base, sessionId, authHeader } = getGowaConfig();
+  try {
+    const response = await fetch(base + '/send/image', {
+      method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+        'X-Device-Id': sessionId,
+      },
+      body: JSON.stringify({ phone: phone + '@s.whatsapp.net', image_url: imageUrl, caption }),
+    });
+    if (response.ok) return;
+  } catch {
+    // Fall back to text message with link below
+  }
+  await sendWhatsappText(phone, `${caption}\n\nBukti Transfer: ${imageUrl}`);
+}
+
+export async function sendWalletReply(phone: string, verified: boolean): Promise<void> {
+  await sendWhatsappText(phone, walletReply(verified));
 }

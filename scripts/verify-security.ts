@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
 import { isAllowedOrigin, isPrivateOrTailscaleIp, normalizeIp, resolveChallengeHostname, resolveClientIp, verifyTurnstile } from '../src/server/security/edge.ts';
+import { convertStaticQrisToDynamic, isValidEmvQris } from '../src/server/sdk/qbiz.ts';
+
+const sampleStaticQris = '00020101021138590014ID.CO.QRIS.WWW0215ID10200845344330303UMI51440014ID.CO.QRIS.WWW0215ID10200845344330303UMI5204581253033605802ID5920Resto Ayam Bakar Cbk6009Mojokerto610561300630448B5';
+assert.equal(isValidEmvQris(sampleStaticQris), true);
+const dynQris = convertStaticQrisToDynamic(sampleStaticQris, 50123);
+assert.equal(isValidEmvQris(dynQris), true);
+assert.equal(dynQris.includes('010212'), true);
+assert.equal(dynQris.includes('540550123'), true);
 
 assert.equal(isPrivateOrTailscaleIp('10.1.0.9'), true);
 assert.equal(isPrivateOrTailscaleIp('172.18.0.5'), true);

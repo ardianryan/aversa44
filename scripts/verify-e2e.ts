@@ -540,6 +540,69 @@ async function run() {
   }
   assert(throttledStatus === 429, 'Login brute-force protection throttles repeated failures with HTTP 429');
 
+  // 9. Static-to-Dynamic QRIS Fallback, Proof Upload & WA Admin Approval
+  const sampleStatic = '00020101021138590014ID.CO.QRIS.WWW0215ID10200845344330303UMI51440014ID.CO.QRIS.WWW0215ID10200845344330303UMI5204581253033605802ID5920Resto Ayam Bakar Cbk6009Mojokerto610561300630448B5';
+  const origFallback = {
+    fallbackQrisStaticPayload: overviewJson.siteSettings?.fallbackQrisStaticPayload || '',
+    fallbackQrisForce: Boolean(overviewJson.siteSettings?.fallbackQrisForce),
+    adminPaymentWhatsapp: overviewJson.siteSettings?.adminPaymentWhatsapp || '',
+  };
+  const cfgFallbackRes = await fetch(`${BASE}/api/admin/site-settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+    body: JSON.stringify({
+      fallbackQrisStaticPayload: sampleStatic,
+      fallbackQrisForce: true,
+      adminPaymentWhatsapp: '6285611112222',
+    }),
+  });
+  assert(cfgFallbackRes.status === 200, 'Admin configures Static QRIS Fallback & Admin WhatsApp');
+
+  const fbOrderRes = await fetch(`${BASE}/api/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customerName: 'Uji Fallback QRIS',
+      customerPhone: '085633334444',
+      customerType: 'UMUM',
+      fulfillmentMode: 'PICKUP_BOOTH',
+      paymentMethod: 'QBIZ_QRIS',
+      items: [{ itemType: 'MERCH', id: catalog.merchProducts[0].id, variantLabel: 'Jet Black • M', quantity: 1 }],
+    }),
+  });
+  const fbOrderJson = await fbOrderRes.json();
+  const fbOrderCookie = fbOrderRes.headers.get('set-cookie')?.split(';')[0] || '';
+  assert(
+    fbOrderRes.status === 201 && fbOrderJson.order?.qbiz_mode === 'STATIC_DYNAMIC_FALLBACK' && fbOrderJson.order?.qbiz_qris_payload?.includes('010212'),
+    'Fallback order generates Dynamic QRIS (Tag 01=12) from Static QRIS'
+  );
+
+  // Upload a tiny valid 1x1 PNG proof (stored to S3 if configured, or local fallback)
+  const tinyPng = Buffer.from(
+    '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082',
+    'hex'
+  );
+  const proofForm = new FormData();
+  proofForm.append('proofFile', new Blob([tinyPng], { type: 'image/png' }), 'bukti-e2e.png');
+  proofForm.append('note', 'BCA a.n. E2E Tester');
+  const proofUploadRes = await fetch(`${BASE}/api/orders/${fbOrderJson.order.order_code}/upload-proof`, {
+    method: 'POST',
+    headers: { Cookie: fbOrderCookie },
+    body: proofForm,
+  });
+  const proofUploadJson = await proofUploadRes.json();
+  assert(
+    proofUploadRes.status === 200 && Boolean(proofUploadJson.order?.payment_proof_url),
+    `Transfer proof uploaded cleanly (${proofUploadJson.order?.payment_proof_url})`
+  );
+
+  // Restore original fallback settings
+  await fetch(`${BASE}/api/admin/site-settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+    body: JSON.stringify(origFallback),
+  });
+
   console.log('--- ALL E2E TESTS PASSED ---');
 }
 

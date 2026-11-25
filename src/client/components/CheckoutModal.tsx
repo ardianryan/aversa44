@@ -47,6 +47,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [securityReset, setSecurityReset] = useState(0);
   const [createdResult, setCreatedResult] = useState<HydratedOrder | null>(null);
   const [proofNote, setProofNote] = useState('');
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofError, setProofError] = useState('');
   const [settling, setSettling] = useState(false);
 
   useEffect(() => {
@@ -195,18 +197,33 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   const handleUploadProof = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createdResult || !proofNote.trim()) return;
+    if (!createdResult || (!proofFile && !proofNote.trim())) return;
     setSettling(true);
+    setProofError('');
     try {
-      const res = await fetch(`/api/orders/${createdResult.order.order_code}/upload-proof`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: proofNote }),
-      });
+      let res: Response;
+      if (proofFile) {
+        const fd = new FormData();
+        fd.append('proofFile', proofFile);
+        if (proofNote.trim()) fd.append('note', proofNote.trim());
+        res = await fetch(`/api/orders/${createdResult.order.order_code}/upload-proof`, {
+          method: 'POST',
+          body: fd,
+        });
+      } else {
+        res = await fetch(`/api/orders/${createdResult.order.order_code}/upload-proof`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note: proofNote }),
+        });
+      }
       const data = await res.json();
       if (data.success) {
         setCreatedResult((prev) => (prev ? { ...prev, order: data.order } : prev));
         setProofNote('');
+        setProofFile(null);
+      } else {
+        setProofError(data.error || 'Gagal mengunggah bukti pembayaran.');
       }
     } finally {
       setSettling(false);
@@ -241,15 +258,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <div className="text-lg font-extrabold mt-1">
                 {createdResult.order.payment_status === 'PAID'
                   ? 'Pembayaran Lunas! E-Ticket & QR Anda Sudah Aktif.'
+                  : createdResult.order.payment_status === 'REJECTED'
+                  ? 'Bukti Pembayaran Ditolak. Silakan Unggah Ulang Bukti Valid.'
                   : createdResult.order.payment_method === 'QBIZ_QRIS'
-                  ? 'Pindai QRIS Dinamis QBiz Berikut (Berlaku 5 Menit)'
+                  ? createdResult.order.qbiz_mode === 'STATIC_DYNAMIC_FALLBACK'
+                    ? 'Pindai QRIS Dinamis Berikut & Unggah Bukti Pembayaran'
+                    : 'Pindai QRIS Dinamis QBiz Berikut (Berlaku 5 Menit)'
                   : createdResult.order.payment_method === 'CASH_BOOTH'
                   ? 'Silakan Bayar Tunai di Booth Kasir OSIS SMAN 1 Gedeg'
                   : 'Menunggu Verifikasi Transfer Bank / Gateway'}
               </div>
             </div>
 
-            {createdResult.order.payment_status === 'PENDING' &&
+            {['PENDING', 'REJECTED'].includes(createdResult.order.payment_status) &&
               createdResult.order.payment_method === 'QBIZ_QRIS' && (
                 <div className="rounded-2xl bg-[#1A021D] border border-[#F5C538]/50 p-5 text-center space-y-4">
                   <div className="bg-[#310603] border border-[#F5C538] rounded-xl p-3">
@@ -278,7 +299,60 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     atas. Status diperiksa otomatis tiap 4 detik.
                   </p>
 
-                  {import.meta.env.DEV && (
+                  {createdResult.order.qbiz_mode === 'STATIC_DYNAMIC_FALLBACK' && (
+                    <form onSubmit={handleUploadProof} className="text-left space-y-3 pt-3 border-t border-[#F5C538]/25">
+                      <div className="text-xs font-extrabold text-[#FDF39D]">
+                        Unggah Bukti Transfer QRIS (Dikirim ke WhatsApp Admin)
+                      </div>
+                      <div>
+                        <label htmlFor="qris-proof-file" className="block text-xs font-bold text-[#F7D160] mb-1">
+                          Foto / Screenshot Bukti Pembayaran (PNG, JPG, WebP, maks 8 MB) *
+                        </label>
+                        <input
+                          id="qris-proof-file"
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                          className="w-full min-h-[44px] px-3 py-2 rounded-lg bg-[#26042A] border border-[#F5C538]/40 text-xs text-[#FFF5D6]"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="qris-proof-note" className="block text-xs font-bold text-[#F7D160] mb-1">
+                          Catatan Pengirim (Opsional)
+                        </label>
+                        <input
+                          id="qris-proof-note"
+                          type="text"
+                          value={proofNote}
+                          onChange={(e) => setProofNote(e.target.value)}
+                          placeholder="Contoh: Dana a.n. Budi jam 14:20"
+                          className="w-full min-h-[44px] px-3 rounded-lg bg-[#26042A] border border-[#F5C538]/40 text-xs text-[#FFF5D6]"
+                        />
+                      </div>
+                      {proofError && <div className="text-xs font-bold text-[#F5B8CB]">{proofError}</div>}
+                      {createdResult.order.payment_proof_url && (
+                        <div className="rounded-xl bg-[#26042A] border border-[#A0D9CA]/40 p-3 flex items-center gap-3">
+                          <img
+                            src={createdResult.order.payment_proof_url}
+                            alt="Bukti transfer terunggah"
+                            className="w-14 h-14 rounded-lg object-cover border border-[#F5C538]/30 shrink-0"
+                          />
+                          <div className="text-xs text-[#A0D9CA] font-semibold">
+                            Bukti transfer sudah terkirim ke Admin. Menunggu konfirmasi WhatsApp.
+                          </div>
+                        </div>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={settling || (!proofFile && !proofNote.trim())}
+                        className="w-full min-h-[44px] px-5 py-2 rounded-xl bg-[#F5C538] text-[#310603] text-xs font-extrabold disabled:opacity-50"
+                      >
+                        {settling ? 'Mengunggah Bukti...' : 'Kirim Bukti Pembayaran ke Admin'}
+                      </button>
+                    </form>
+                  )}
+
+                  {import.meta.env.DEV && createdResult.order.qbiz_mode !== 'STATIC_DYNAMIC_FALLBACK' && (
                   <div className="pt-2 border-t border-[#F5C538]/20">
                     <button
                       type="button"

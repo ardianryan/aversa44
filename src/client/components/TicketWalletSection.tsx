@@ -28,6 +28,42 @@ export const TicketWalletSection: React.FC<TicketWalletSectionProps> = ({
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [securityToken, setSecurityToken] = useState('');
   const [securityReset, setSecurityReset] = useState(0);
+  const [proofFiles, setProofFiles] = useState<Record<string, File | null>>({});
+  const [proofNotes, setProofNotes] = useState<Record<string, string>>({});
+  const [uploadingCode, setUploadingCode] = useState('');
+
+  const handleWalletProofUpload = async (orderCode: string) => {
+    const file = proofFiles[orderCode] || null;
+    const note = (proofNotes[orderCode] || '').trim();
+    if (!file && !note) return;
+    setUploadingCode(orderCode);
+    setErrorMsg('');
+    try {
+      let res: Response;
+      if (file) {
+        const fd = new FormData();
+        fd.append('proofFile', file);
+        if (note) fd.append('note', note);
+        res = await fetch(`/api/orders/${orderCode}/upload-proof`, { method: 'POST', body: fd });
+      } else {
+        res = await fetch(`/api/orders/${orderCode}/upload-proof`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note }),
+        });
+      }
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setErrorMsg(data.error || 'Gagal mengunggah bukti pembayaran.');
+        return;
+      }
+      setResults((prev) => prev.map((r) => (r.order.order_code === orderCode ? { ...r, order: data.order } : r)));
+      setProofFiles((prev) => ({ ...prev, [orderCode]: null }));
+      setProofNotes((prev) => ({ ...prev, [orderCode]: '' }));
+    } finally {
+      setUploadingCode('');
+    }
+  };
 
   const requestCode = async () => {
     setVerificationBusy(true); setErrorMsg('');
@@ -265,8 +301,8 @@ export const TicketWalletSection: React.FC<TicketWalletSectionProps> = ({
               </button>
             </div>
 
-            {/* Pending QRIS Block if still unpaid */}
-            {order.payment_status === 'PENDING' && order.payment_method === 'QBIZ_QRIS' && qrisDataUrl && (
+            {/* Pending / Rejected QRIS Block */}
+            {['PENDING', 'REJECTED'].includes(order.payment_status) && order.payment_method === 'QBIZ_QRIS' && qrisDataUrl && (
               <div className="rounded-2xl bg-[#1A021D] border border-[#F5C538] p-4 flex flex-col sm:flex-row items-center gap-5">
                 <img
                   src={qrisDataUrl}
@@ -275,12 +311,49 @@ export const TicketWalletSection: React.FC<TicketWalletSectionProps> = ({
                   height={180}
                   className="w-40 h-40 rounded-xl bg-[#FFF9E6] p-2 shrink-0"
                 />
-                <div className="space-y-2 text-center sm:text-left">
+                <div className="space-y-2 text-center sm:text-left flex-1 w-full">
                   <div className="text-xs font-bold text-[#F5B8CB]">
-                    Bayar persis nominal (termasuk kode unik {order.unique_code}):
+                    {order.payment_status === 'REJECTED'
+                      ? 'Bukti sebelumnya ditolak. Silakan unggah ulang bukti valid:'
+                      : `Bayar persis nominal (termasuk kode unik ${order.unique_code}):`}
                   </div>
                   <div className="text-2xl font-black text-[#FDF39D]">{formatRupiah(order.total_amount)}</div>
-                  {import.meta.env.DEV && (
+                  {order.qbiz_mode === 'STATIC_DYNAMIC_FALLBACK' && (
+                    <div className="space-y-2 pt-2 border-t border-[#F5C538]/20">
+                      {order.payment_proof_url && (
+                        <div className="text-xs text-[#A0D9CA]">
+                          Bukti terakhir:{' '}
+                          <a href={order.payment_proof_url} target="_blank" rel="noreferrer" className="underline font-bold">
+                            Lihat Bukti
+                          </a>
+                        </div>
+                      )}
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={(e) => setProofFiles((p) => ({ ...p, [order.order_code]: e.target.files?.[0] || null }))}
+                          className="min-h-[44px] px-2.5 py-2 rounded-lg bg-[#26042A] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
+                        />
+                        <input
+                          type="text"
+                          value={proofNotes[order.order_code] || ''}
+                          onChange={(e) => setProofNotes((p) => ({ ...p, [order.order_code]: e.target.value }))}
+                          placeholder="Catatan pengirim (opsional)"
+                          className="min-h-[44px] px-3 rounded-lg bg-[#26042A] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
+                        />
+                        <button
+                          type="button"
+                          disabled={uploadingCode === order.order_code}
+                          onClick={() => handleWalletProofUpload(order.order_code)}
+                          className="min-h-[44px] px-4 py-2 rounded-lg bg-[#F5C538] text-[#310603] text-xs font-extrabold shrink-0"
+                        >
+                          {uploadingCode === order.order_code ? 'Mengunggah...' : 'Unggah Bukti'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {import.meta.env.DEV && order.qbiz_mode !== 'STATIC_DYNAMIC_FALLBACK' && (
                   <button
                     type="button"
                     disabled={settlingCode === order.order_code}

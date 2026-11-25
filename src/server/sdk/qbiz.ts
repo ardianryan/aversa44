@@ -46,7 +46,7 @@ export interface Invoice {
   expiredAt: string;
   paidAt?: string | null;
   createdAt: string;
-  mode?: 'QBIZ_LIVE' | 'QBIZ_LOCAL_COMPAT';
+  mode?: 'QBIZ_LIVE' | 'QBIZ_LOCAL_COMPAT' | 'STATIC_DYNAMIC_FALLBACK';
 }
 
 export interface InvoiceStatus {
@@ -234,26 +234,132 @@ export function buildEmvQrisPayload(totalAmount: number, orderId: string, mercha
   return raw + crc16Ccitt(raw);
 }
 
+export function isValidEmvQris(payload: string): boolean {
+  const trimmed = payload.trim();
+  if (!trimmed.startsWith('000201') || trimmed.length < 32) return false;
+  const idx63 = trimmed.lastIndexOf('6304');
+  if (idx63 === -1 || idx63 + 8 !== trimmed.length) return false;
+  const expected = crc16Ccitt(trimmed.slice(0, idx63 + 4));
+  return expected === trimmed.slice(idx63 + 4).toUpperCase();
+}
+
+/**
+ * Converts a Static QRIS payload string into a Dynamic QRIS payload string
+ * (ported from qrispaymti/src/utils/qris.ts): sets Tag 01 = '12', inserts/updates
+ * Tag 54 right before Tag 58, and recomputes EMVCo CRC-16 Tag 63.
+ */
+export function convertStaticQrisToDynamic(staticPayload: string, amount: number): string {
+  const trimmed = staticPayload.trim();
+  if (!trimmed) return '';
+  const idx63 = trimmed.lastIndexOf('6304');
+  const body = idx63 !== -1 ? trimmed.slice(0, idx63) : trimmed;
+
+  const tags: Array<{ tag: string; val: string }> = [];
+  let i = 0;
+  while (i + 4 <= body.length) {
+    const tag = body.slice(i, i + 2);
+    const len = parseInt(body.slice(i + 2, i + 4), 10);
+    if (Number.isNaN(len) || len < 0 || i + 4 + len > body.length) break;
+    tags.push({ tag, val: body.slice(i + 4, i + 4 + len) });
+    i += 4 + len;
+  }
+
+  const amountStr = Math.round(amount).toString();
+  const newTags: Array<{ tag: string; val: string }> = [];
+  let hasTag54 = false;
+
+  for (const item of tags) {
+    if (item.tag === '01') {
+      newTags.push({ tag: '01', val: '12' });
+    } else if (item.tag === '54') {
+      newTags.push({ tag: '54', val: amountStr });
+      hasTag54 = true;
+    } else if (item.tag === '58' && !hasTag54) {
+      newTags.push({ tag: '54', val: amountStr });
+      hasTag54 = true;
+      newTags.push(item);
+    } else {
+      newTags.push(item);
+    }
+  }
+  if (!hasTag54) newTags.push({ tag: '54', val: amountStr });
+
+  let result = '';
+  for (const item of newTags) {
+    result += `${item.tag}${item.val.length.toString().padStart(2, '0')}${item.val}`;
+  }
+  result += '6304';
+  return result + crc16Ccitt(result);
+}
+
 /**
  * Attempts live QBiz server invoice creation; seamlessly builds compatible EMVCo Dynamic QRIS
- * using collision-free 3-digit unique code if QBiz local server (port 8000) is offline.
+ * using admin static QRIS (when configured) or local compat mode if QBiz is offline.
  */
 export async function createQrisInvoiceWithFallback(
   options: CreateInvoiceOptions,
-  uniqueCodeFallback: number
+  uniqueCodeFallback: number,
+  fallbackOptions?: { staticQrisPayload?: string; forceFallback?: boolean }
 ): Promise<Invoice> {
   const baseUrl = process.env.QBIZ_BASE_URL || 'http://localhost:8000';
   const apiKey = process.env.QBIZ_API_KEY || 'local_test_only_qbiz_api_key_not_for_production';
   const client = new QBizClient({ apiKey, baseUrl });
+  const staticPayload = (fallbackOptions?.staticQrisPayload || '').trim();
+  const hasStaticFallback = Boolean(staticPayload && isValidEmvQris(staticPayload));
+
+  if (fallbackOptions?.forceFallback && hasStaticFallback) {
+    const baseAmount = Math.round(options.amount);
+    const totalAmount = baseAmount + uniqueCodeFallback;
+    return {
+      id: `fb_${Date.now()}_${uniqueCodeFallback}`,
+      merchantId: options.merchantId || 'aversa44_fallback',
+      orderId: options.orderId,
+      baseAmount,
+      uniqueCode: uniqueCodeFallback,
+      totalAmount,
+      status: 'PENDING',
+      qrisPayload: convertStaticQrisToDynamic(staticPayload, totalAmount),
+      checkoutUrl: `${options.redirectUrl || ''}`,
+      redirectUrl: options.redirectUrl || null,
+      customerName: options.customerName || null,
+      customerEmail: options.customerEmail || null,
+      customerPhone: options.customerPhone || null,
+      items: options.items || null,
+      expiredAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      createdAt: new Date().toISOString(),
+      mode: 'STATIC_DYNAMIC_FALLBACK',
+    };
+  }
 
   try {
     return await client.createInvoice(options);
   } catch {
+    const baseAmount = Math.round(options.amount);
+    const totalAmount = baseAmount + uniqueCodeFallback;
+    if (hasStaticFallback) {
+      return {
+        id: `fb_${Date.now()}_${uniqueCodeFallback}`,
+        merchantId: options.merchantId || 'aversa44_fallback',
+        orderId: options.orderId,
+        baseAmount,
+        uniqueCode: uniqueCodeFallback,
+        totalAmount,
+        status: 'PENDING',
+        qrisPayload: convertStaticQrisToDynamic(staticPayload, totalAmount),
+        checkoutUrl: `${options.redirectUrl || ''}`,
+        redirectUrl: options.redirectUrl || null,
+        customerName: options.customerName || null,
+        customerEmail: options.customerEmail || null,
+        customerPhone: options.customerPhone || null,
+        items: options.items || null,
+        expiredAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        createdAt: new Date().toISOString(),
+        mode: 'STATIC_DYNAMIC_FALLBACK',
+      };
+    }
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Pembayaran QRIS sementara tidak tersedia. Silakan coba lagi atau pilih metode lain.');
     }
-    const baseAmount = Math.round(options.amount);
-    const totalAmount = baseAmount + uniqueCodeFallback;
     const invId = `inv_${Date.now()}_${uniqueCodeFallback}`;
     const qrisPayload = buildEmvQrisPayload(totalAmount, options.orderId);
     const expiredAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();

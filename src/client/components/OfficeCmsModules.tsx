@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import jsQR from 'jsqr';
 import { ResponsiveSheet } from './ui/ResponsiveSheet.tsx';
 import { ConfirmModal } from './ui/ConfirmModal.tsx';
 import type {
@@ -109,8 +110,15 @@ export const OfficeOverviewView: React.FC<
                   <div className="text-[#FFF5D6] font-bold">
                     {ord.customer_name} • {ord.payment_method} • {formatRupiah(ord.total_amount)}
                   </div>
-                  {ord.payment_proof_note && (
-                    <div className="text-[#A0D9CA]">Bukti: {ord.payment_proof_note}</div>
+                  {(ord.payment_proof_note || ord.payment_proof_url) && (
+                    <div className="text-[#A0D9CA] flex flex-wrap items-center gap-2">
+                      {ord.payment_proof_note && <span>Bukti: {ord.payment_proof_note}</span>}
+                      {ord.payment_proof_url && (
+                        <a href={ord.payment_proof_url} target="_blank" rel="noreferrer" className="underline font-bold text-[#FDF39D]">
+                          Lihat Foto Bukti
+                        </a>
+                      )}
+                    </div>
                   )}
                 </div>
                 <button
@@ -296,6 +304,14 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
                 Mode: <strong>{ord.fulfillment_mode}</strong> ({ord.fulfillment_status}) • Alamat:{' '}
                 {ord.shipping_address || '-'}
                 {ord.payment_proof_note ? ` • Catatan Bukti: ${ord.payment_proof_note}` : ''}
+                {ord.payment_proof_url && (
+                  <>
+                    {' • '}
+                    <a href={ord.payment_proof_url} target="_blank" rel="noreferrer" className="underline font-bold text-[#FDF39D]">
+                      Lihat Foto Bukti
+                    </a>
+                  </>
+                )}
               </div>
 
               {Array.isArray(ord.items) && ord.items.length > 0 && (
@@ -1517,6 +1533,9 @@ export const OfficeHeroSettingsCmsView: React.FC<CmsCommonProps> = ({
     guestStarVenue: s.guestStarVenue || 'Lapangan Tengah SMAN 1 Gedeg',
     guestStarAccessNote: s.guestStarAccessNote || 'E-Ticket QR Terenkripsi',
     bankPaymentInfo: s.bankPaymentInfo || '',
+    fallbackQrisStaticPayload: s.fallbackQrisStaticPayload || '',
+    fallbackQrisForce: Boolean(s.fallbackQrisForce),
+    adminPaymentWhatsapp: s.adminPaymentWhatsapp || '',
     sponsorshipHeadline: s.sponsorshipHeadline || '',
     sponsorshipDescription: s.sponsorshipDescription || '',
     address: s.address || '',
@@ -1546,6 +1565,9 @@ export const OfficeHeroSettingsCmsView: React.FC<CmsCommonProps> = ({
         guestStarVenue: form.guestStarVenue,
         guestStarAccessNote: form.guestStarAccessNote,
         bankPaymentInfo: form.bankPaymentInfo,
+        fallbackQrisStaticPayload: form.fallbackQrisStaticPayload,
+        fallbackQrisForce: form.fallbackQrisForce,
+        adminPaymentWhatsapp: form.adminPaymentWhatsapp,
         sponsorshipHeadline: form.sponsorshipHeadline,
         sponsorshipDescription: form.sponsorshipDescription,
         address: form.address,
@@ -1752,6 +1774,92 @@ export const OfficeHeroSettingsCmsView: React.FC<CmsCommonProps> = ({
             onChange={(e) => setForm({ ...form, bankPaymentInfo: e.target.value })}
             className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
           />
+        </div>
+
+        <div className="rounded-xl border border-[#F5C538]/35 bg-[#1A021D] p-4 space-y-4">
+          <div>
+            <div className="text-sm font-extrabold text-[#FDF39D]">
+              QRIS Dynamic Fallback &amp; Verifikasi WhatsApp Admin
+            </div>
+            <p className="text-xs text-[#FFF5D6]/75 mt-0.5">
+              Aktif otomatis jika gateway utama tidak tersedia. Unggah gambar QRIS statis untuk diubah menjadi Dynamic QRIS sesuai nominal pesanan.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="qris-static-file" className="block text-xs font-bold text-[#F7D160] mb-1">
+                Unggah Gambar QRIS Statis (PNG / JPG)
+              </label>
+              <input
+                id="qris-static-file"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const bmp = await createImageBitmap(file);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = bmp.width;
+                    canvas.height = bmp.height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return;
+                    ctx.drawImage(bmp, 0, 0);
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const decoded = jsQR(imgData.data, imgData.width, imgData.height);
+                    if (!decoded?.data || !decoded.data.startsWith('000201')) {
+                      onNotify('QRIS tidak terbaca dari gambar tersebut. Pastikan gambar jelas dan merupakan QRIS resmi.', true);
+                      return;
+                    }
+                    setForm((prev) => ({ ...prev, fallbackQrisStaticPayload: decoded.data.trim() }));
+                    onNotify('Payload QRIS statis berhasil dibaca! Klik Simpan Pengaturan Situs untuk menerapkan.');
+                  } catch {
+                    onNotify('Gagal membaca file gambar QRIS.', true);
+                  }
+                }}
+                className="w-full min-h-[44px] px-3 py-2 rounded-lg bg-[#26042A] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="admin-wa-payment" className="block text-xs font-bold text-[#F7D160] mb-1">
+                Nomor WhatsApp Admin Pembayaran (Bukan Nomor Bot)
+              </label>
+              <input
+                id="admin-wa-payment"
+                type="text"
+                value={form.adminPaymentWhatsapp}
+                onChange={(e) => setForm({ ...form, adminPaymentWhatsapp: e.target.value })}
+                placeholder="Contoh: 085612345678 atau 6285612345678"
+                className="w-full min-h-[44px] px-3 rounded-lg bg-[#26042A] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="qris-static-payload" className="block text-xs font-bold text-[#F7D160] mb-1">
+              Payload QRIS Statis Terbaca (EMVCo)
+            </label>
+            <input
+              id="qris-static-payload"
+              type="text"
+              value={form.fallbackQrisStaticPayload}
+              onChange={(e) => setForm({ ...form, fallbackQrisStaticPayload: e.target.value })}
+              placeholder="000201010211..."
+              className="w-full min-h-[44px] px-3 rounded-lg bg-[#26042A] border border-[#F5C538]/35 text-xs font-mono text-[#A0D9CA]"
+            />
+          </div>
+
+          <label className="flex items-center gap-2.5 min-h-[44px] text-xs font-bold text-[#FDF39D] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.fallbackQrisForce}
+              onChange={(e) => setForm({ ...form, fallbackQrisForce: e.target.checked })}
+              className="w-4 h-4 accent-[#F5C538]"
+            />
+            Aktifkan Mode QRIS Fallback Sekarang (gunakan QRIS Statis ke Dinamis + Bukti Transfer meski gateway aktif)
+          </label>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

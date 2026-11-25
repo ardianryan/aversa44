@@ -1,7 +1,8 @@
 import { sealCloudSecret } from './security/cloud-secrets.ts';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { isAllowedOrigin, isPrivateOrTailscaleIp, normalizeIp, resolveChallengeHostname, resolveClientIp, verifyTurnstile } from './security/edge.ts';
-import { sendWalletReply } from './wallet-replies.ts';
+import { sendWalletReply, sendWhatsappMedia, sendWhatsappText } from './wallet-replies.ts';
+import { isS3Configured, uploadPaymentProofToS3 } from './s3-storage.ts';
 import { normalizePhone, otpDigest, signWalletAccess, verifyWalletAccess } from './wallet-auth.ts';
 import 'dotenv/config';
 import crypto from 'node:crypto';
@@ -31,6 +32,7 @@ import {
 import {
   QBizClient,
   createQrisInvoiceWithFallback,
+  isValidEmvQris,
   signQbizWebhookBody,
 } from './sdk/qbiz.ts';
 
@@ -288,7 +290,9 @@ app.get('/api/catalog', async (c) => {
       }, []) : [],
     },
     timeline: timelineRes.rows,
-    qrisEnabled,
+    qrisEnabled: qrisEnabled || (typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload)),
+    fallbackQrisReady: typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload),
+    fallbackQrisActive: Boolean(cfg.fallbackQrisForce && typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload)),
     ticketTiers: tiersRes.rows,
     merchProducts: merchRes.rows,
     shippingZones: zonesRes.rows,
@@ -507,6 +511,8 @@ app.post('/api/orders', async (c) => {
     const expiredAt = new Date(Date.now() + (input.paymentMethod === 'QBIZ_QRIS' ? 5 * 60 * 1000 : 24 * 60 * 60 * 1000));
 
     if (input.paymentMethod === 'QBIZ_QRIS') {
+      const cfgRes = await dbClient.query('SELECT value_json FROM site_settings WHERE key = $1', ['public_config']);
+      const siteCfg = cfgRes.rows[0]?.value_json || {};
       const inv = await createQrisInvoiceWithFallback(
         {
           orderId: orderCode,
@@ -523,7 +529,11 @@ app.post('/api/orders', async (c) => {
             price: it.unitPrice,
           })),
         },
-        uniqueCode
+        uniqueCode,
+        {
+          staticQrisPayload: typeof siteCfg.fallbackQrisStaticPayload === 'string' ? siteCfg.fallbackQrisStaticPayload : '',
+          forceFallback: Boolean(siteCfg.fallbackQrisForce),
+        }
       );
       qbizInvoiceId = inv.id;
       qbizQrisPayload = inv.qrisPayload;
@@ -770,12 +780,91 @@ app.post('/api/webhooks/whatsapp', async (c) => {
       (process.env.GOWA_SESSION_ID && data.session_id !== process.env.GOWA_SESSION_ID)) { diagnostic('event or session ignored'); return c.json({ success: true }); }
   const sender = typeof data.payload?.from === 'string' ? data.payload.from : '';
   const chat = typeof data.payload?.chat_id === 'string' ? data.payload.chat_id : '';
-  const match = typeof data.payload?.body === 'string' ? /^VERIFIKASI AVERSA ([a-f0-9]{36})$/i.exec(data.payload.body.trim()) : null;
+  const bodyText = typeof data.payload?.body === 'string' ? data.payload.body.trim() : '';
   if (!/^62[0-9]{8,13}@s\.whatsapp\.net$/.test(sender) ||
-      !/^62[0-9]{8,13}@s\.whatsapp\.net$/.test(chat) || !match) { diagnostic('sender, chat or message format ignored'); return c.json({ success: true }); }
+      !/^62[0-9]{8,13}@s\.whatsapp\.net$/.test(chat)) { diagnostic('sender or chat format ignored'); return c.json({ success: true }); }
   const phone = normalizePhone(sender.split('@')[0]);
   const messageId = typeof data.payload?.id === 'string' ? data.payload.id.trim() : '';
   if (!phone || !messageId || messageId.length > 200) { diagnostic('message id missing'); return c.json({ success: true }); }
+
+  // 1) Admin WhatsApp payment approval / rejection: AVERSA YA <CODE> or AVERSA TOLAK <CODE> [reason]
+  const adminCmd = /^AVERSA\s+(YA|ACC|TOLAK)\s+(AVR44-[A-Z0-9-]+)(?:\s+(.+))?$/i.exec(bodyText);
+  if (adminCmd) {
+    const cfgRes = await pool.query('SELECT value_json FROM site_settings WHERE key = $1', ['public_config']);
+    const adminWa = normalizePhone(String(cfgRes.rows[0]?.value_json?.adminPaymentWhatsapp || ''));
+    if (!adminWa || adminWa !== phone) {
+      diagnostic('admin command from non-admin ignored');
+      return c.json({ success: true });
+    }
+    const action = adminCmd[1].toUpperCase();
+    const targetOrderCode = adminCmd[2].toUpperCase();
+    const rejectReason = (adminCmd[3] || 'Bukti transfer tidak sesuai atau belum masuk.').trim().slice(0, 200);
+    const client = await pool.connect();
+    let replyToAdmin = '';
+    let notifyCustomer: { phone: string; message: string } | null = null;
+    try {
+      await client.query('BEGIN');
+      const receipt = await client.query(
+        'INSERT INTO wallet_webhook_receipts (session_id, message_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING message_id',
+        [String(data.session_id || data.device_id || ''), messageId]
+      );
+      if (receipt.rowCount) {
+        const ordRes = await client.query('SELECT * FROM orders WHERE order_code = $1 FOR UPDATE', [targetOrderCode]);
+        const ord = ordRes.rows[0];
+        if (!ord) {
+          replyToAdmin = `Pesanan ${targetOrderCode} tidak ditemukan.`;
+        } else if (action === 'YA' || action === 'ACC') {
+          if (ord.payment_status === 'PAID') {
+            replyToAdmin = `Pesanan ${targetOrderCode} sudah berstatus LUNAS sebelumnya.`;
+          } else {
+            await settleOrderPayment(client, ord.id, `WA_ADMIN_${adminWa}`);
+            replyToAdmin = `LUNAS: Pesanan ${targetOrderCode} (${ord.customer_name}, Rp ${Number(ord.total_amount).toLocaleString('id-ID')}) telah disahkan dan e-ticket diaktifkan.`;
+            const custPhone = normalizePhone(ord.customer_phone);
+            if (custPhone) {
+              notifyCustomer = {
+                phone: custPhone,
+                message: `Pembayaran pesanan ${targetOrderCode} sebesar Rp ${Number(ord.total_amount).toLocaleString('id-ID')} telah DITERIMA oleh panitia AVERSA 44. Buka Dompet Tiket Anda di ${PUBLIC_SITE_URL}/dompet-tiket untuk mengunduh e-ticket QR.`,
+              };
+            }
+          }
+        } else {
+          if (ord.payment_status === 'PAID') {
+            replyToAdmin = `Pesanan ${targetOrderCode} sudah berstatus LUNAS dan tidak bisa ditolak.`;
+          } else {
+            await client.query(
+              `UPDATE orders SET payment_status = 'REJECTED', verified_by = $1 WHERE id = $2`,
+              [`WA_REJECT_${adminWa}: ${rejectReason}`.slice(0, 120), ord.id]
+            );
+            replyToAdmin = `DITOLAK: Pesanan ${targetOrderCode} ditandai ditolak (${rejectReason}).`;
+            const custPhone = normalizePhone(ord.customer_phone);
+            if (custPhone) {
+              notifyCustomer = {
+                phone: custPhone,
+                message: `Bukti pembayaran pesanan ${targetOrderCode} belum dapat disetujui (${rejectReason}). Silakan unggah ulang bukti transfer yang valid melalui ${PUBLIC_SITE_URL}/dompet-tiket.`,
+              };
+            }
+          }
+        }
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    if (replyToAdmin) {
+      try { await sendWhatsappText(adminWa, replyToAdmin); } catch { console.error('[wa admin] reply failed'); }
+    }
+    if (notifyCustomer) {
+      try { await sendWhatsappText(notifyCustomer.phone, notifyCustomer.message); } catch { console.error('[wa customer] notify failed'); }
+    }
+    return c.json({ success: true });
+  }
+
+  // 2) Customer wallet OTP verification: VERIFIKASI AVERSA <challenge>
+  const match = /^VERIFIKASI AVERSA ([a-f0-9]{36})$/i.exec(bodyText);
+  if (!match) { diagnostic('message format ignored'); return c.json({ success: true }); }
   const client = await pool.connect();
   let isNew = false, verified = false;
   try {
@@ -857,23 +946,102 @@ app.post('/api/orders/lookup', async (c) => {
   return c.json({ success: true, results: hydratedOrders });
 });
 
+app.use('/api/orders/:orderCode/upload-proof', bodyLimit({ maxSize: 9 * 1024 * 1024, onError: (c) => c.json({ success: false, error: 'Ukuran bukti transfer maksimal 8 MB.' }, 413) }));
 app.post('/api/orders/:orderCode/upload-proof', async (c) => {
   const orderCode = c.req.param('orderCode').trim().toUpperCase();
-  const body = await c.req.json().catch(() => ({}));
-  const note = String(body.note || '').trim().slice(0, 300);
-  if (!note) {
-    return c.json({ success: false, error: 'Mohon sertakan nama pengirim / bank / jam transfer.' }, 400);
+  const contentType = c.req.header('content-type') || '';
+  let note = '';
+  let uploadedUrl: string | null = null;
+
+  const existingRes = await pool.query('SELECT * FROM orders WHERE order_code = $1', [orderCode]);
+  const existingOrder = existingRes.rows[0];
+  if (!existingOrder || !canReadOrder(c, existingOrder)) {
+    return c.json({ success: false, error: 'Verifikasi nomor WhatsApp untuk mengubah pesanan.' }, 401);
   }
-  const existing = await pool.query('SELECT * FROM orders WHERE order_code = $1', [orderCode]);
-  if (!existing.rows[0] || !canReadOrder(c, existing.rows[0])) return c.json({ success: false, error: 'Verifikasi nomor WhatsApp untuk mengubah pesanan.' }, 401);
+  if (!['PENDING', 'REJECTED'].includes(existingOrder.payment_status)) {
+    return c.json({ success: false, error: 'Pesanan sudah berstatus lunas atau tidak dapat diubah.' }, 400);
+  }
+
+  if (contentType.includes('multipart/form-data')) {
+    const form = await c.req.formData().catch(() => null);
+    note = String(form?.get('note') || '').trim().slice(0, 300);
+    const file = form?.get('proofFile');
+    if (file instanceof File && file.size > 0) {
+      if (file.size > 8 * 1024 * 1024) {
+        return c.json({ success: false, error: 'Ukuran file bukti maksimal 8 MB.' }, 400);
+      }
+      const buf = Buffer.from(await file.arrayBuffer());
+      const isPng = buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+      const isJpg = buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+      const isWebp = buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP';
+      if (!isPng && !isJpg && !isWebp) {
+        return c.json({ success: false, error: 'Hanya file gambar PNG, JPG, atau WebP yang diizinkan.' }, 400);
+      }
+      const ext = isPng ? 'png' : isJpg ? 'jpg' : 'webp';
+      const mime = isPng ? 'image/png' : isJpg ? 'image/jpeg' : 'image/webp';
+      const filename = `${orderCode}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+      if (isS3Configured()) {
+        const stored = await uploadPaymentProofToS3(buf, filename, mime);
+        uploadedUrl = stored.url;
+      } else {
+        const uploadDir = path.resolve(process.cwd(), 'public', 'uploads', 'payments');
+        fs.mkdirSync(uploadDir, { recursive: true });
+        fs.writeFileSync(path.join(uploadDir, filename), buf);
+        uploadedUrl = `/uploads/payments/${filename}`;
+      }
+    }
+  } else {
+    const body = await c.req.json().catch(() => ({}));
+    note = String(body.note || '').trim().slice(0, 300);
+  }
+
+  if (!note && !uploadedUrl) {
+    return c.json({ success: false, error: 'Mohon unggah foto bukti transfer atau sertakan catatan pengirim.' }, 400);
+  }
+
   const res = await pool.query(
-    `UPDATE orders SET payment_proof_note = $1 WHERE order_code = $2 AND payment_status = 'PENDING' RETURNING *`,
-    [note, orderCode]
+    `UPDATE orders
+     SET payment_proof_url = COALESCE($1, payment_proof_url),
+         payment_proof_note = COALESCE(NULLIF($2, ''), payment_proof_note),
+         payment_status = 'PENDING'
+     WHERE order_code = $3 AND payment_status IN ('PENDING', 'REJECTED')
+     RETURNING *`,
+    [uploadedUrl, note, orderCode]
   );
   if (!res.rows[0]) {
     return c.json({ success: false, error: 'Pesanan tidak ditemukan atau sudah berstatus lunas.' }, 404);
   }
-  return c.json({ success: true, order: res.rows[0] });
+  const updatedOrder = res.rows[0];
+
+  // Notify Admin WhatsApp if configured
+  try {
+    const cfgRes = await pool.query('SELECT value_json FROM site_settings WHERE key = $1', ['public_config']);
+    const adminWa = normalizePhone(String(cfgRes.rows[0]?.value_json?.adminPaymentWhatsapp || ''));
+    if (adminWa) {
+      const caption = [
+        `*BUKTI PEMBAYARAN BARU - AVERSA 44*`,
+        `Kode: *${updatedOrder.order_code}*`,
+        `Nama: ${updatedOrder.customer_name}`,
+        `WA Pembeli: ${updatedOrder.customer_phone}`,
+        `Total: *Rp ${Number(updatedOrder.total_amount).toLocaleString('id-ID')}*`,
+        updatedOrder.payment_proof_note ? `Catatan: ${updatedOrder.payment_proof_note}` : null,
+        ``,
+        `Balas pesan ini untuk verifikasi:`,
+        `*AVERSA YA ${updatedOrder.order_code}*`,
+        `atau`,
+        `*AVERSA TOLAK ${updatedOrder.order_code} [alasan]*`,
+      ].filter((line) => line !== null).join('\n');
+      if (updatedOrder.payment_proof_url && /^https?:\/\//i.test(updatedOrder.payment_proof_url)) {
+        await sendWhatsappMedia(adminWa, updatedOrder.payment_proof_url, caption);
+      } else {
+        await sendWhatsappText(adminWa, caption);
+      }
+    }
+  } catch (err) {
+    console.error('[upload-proof] admin WA notify failed:', err);
+  }
+
+  return c.json({ success: true, order: updatedOrder });
 });
 
 // Sandbox helper: dispatches a genuine cryptographically signed QBiz HMAC-SHA256 webhook to /api/webhooks/qbiz
@@ -1859,6 +2027,25 @@ app.put('/api/admin/site-settings', async (c) => {
   const patch = await c.req.json().catch(() => null);
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
     return c.json({ success: false, error: 'Payload pengaturan situs harus berupa objek JSON.' }, 400);
+  }
+
+  if (typeof patch.fallbackQrisStaticPayload === 'string' && patch.fallbackQrisStaticPayload.trim()) {
+    if (!isValidEmvQris(patch.fallbackQrisStaticPayload)) {
+      return c.json({ success: false, error: 'Payload QRIS statis tidak valid (bukan format EMVCo QRIS / CRC tidak cocok).' }, 400);
+    }
+    patch.fallbackQrisStaticPayload = patch.fallbackQrisStaticPayload.trim();
+  }
+  if (typeof patch.adminPaymentWhatsapp === 'string') {
+    const trimmedWa = patch.adminPaymentWhatsapp.trim();
+    if (trimmedWa) {
+      const normalized = normalizePhone(trimmedWa);
+      if (!normalized) {
+        return c.json({ success: false, error: 'Nomor WhatsApp Admin Pembayaran tidak valid.' }, 400);
+      }
+      patch.adminPaymentWhatsapp = normalized;
+    } else {
+      patch.adminPaymentWhatsapp = '';
+    }
   }
 
   const cur = await pool.query('SELECT value_json FROM site_settings WHERE key = $1', ['public_config']);

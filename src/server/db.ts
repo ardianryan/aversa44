@@ -158,12 +158,13 @@ export async function initDatabase() {
       unique_code INTEGER NOT NULL DEFAULT 0,
       total_amount INTEGER NOT NULL,
       payment_method VARCHAR(32) NOT NULL CHECK (payment_method IN ('QBIZ_QRIS', 'XENDIT', 'CASH_BOOTH', 'MANUAL_TRANSFER')),
-      payment_status VARCHAR(24) NOT NULL DEFAULT 'PENDING' CHECK (payment_status IN ('PENDING', 'PAID', 'EXPIRED', 'REFUNDED')),
+      payment_status VARCHAR(24) NOT NULL DEFAULT 'PENDING' CHECK (payment_status IN ('PENDING', 'PAID', 'EXPIRED', 'REFUNDED', 'REJECTED')),
       qbiz_invoice_id VARCHAR(120),
       qbiz_qris_payload TEXT,
       qbiz_checkout_url TEXT,
       qbiz_mode VARCHAR(32),
       payment_proof_note TEXT,
+      payment_proof_url TEXT,
       paid_at TIMESTAMPTZ,
       verified_by VARCHAR(120),
       expired_at TIMESTAMPTZ,
@@ -265,6 +266,9 @@ export async function initDatabase() {
     ALTER TABLE staff_users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE staff_users DROP CONSTRAINT IF EXISTS staff_users_role_check;
     ALTER TABLE staff_users ADD CONSTRAINT staff_users_role_check CHECK (role IN ('ADMIN', 'CASHIER', 'SCANNER', 'MEDIA'));
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_proof_url TEXT;
+    ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check;
+    ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check CHECK (payment_status IN ('PENDING', 'PAID', 'EXPIRED', 'REFUNDED', 'REJECTED'));
   `);
 
   await seedInitialData();

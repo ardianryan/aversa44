@@ -178,11 +178,12 @@ export interface OrderRecord {
   unique_code: number;
   total_amount: number;
   payment_method: 'QBIZ_QRIS' | 'XENDIT' | 'CASH_BOOTH' | 'MANUAL_TRANSFER';
-  payment_status: 'PENDING' | 'PAID' | 'EXPIRED' | 'REFUNDED';
+  payment_status: 'PENDING' | 'PAID' | 'EXPIRED' | 'REFUNDED' | 'REJECTED';
   qbiz_invoice_id: string | null;
   qbiz_qris_payload: string | null;
   qbiz_mode: string | null;
   payment_proof_note: string | null;
+  payment_proof_url?: string | null;
   paid_at: string | null;
   expired_at: string | null;
   created_at: string;
