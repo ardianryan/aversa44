@@ -181,11 +181,40 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
   onCatalogRefresh,
   onNotify,
 }) => {
-  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'PAID'>('ALL');
+  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'PAID' | 'REJECTED'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [resiMap, setResiMap] = useState<Record<string, string>>({});
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const allOrders: any[] = adminData.orders || [];
+  const pendingCount = allOrders.filter((o) => o.payment_status === 'PENDING').length;
+  const paidCount = allOrders.filter((o) => o.payment_status === 'PAID').length;
+  const paidRevenue = allOrders
+    .filter((o) => o.payment_status === 'PAID')
+    .reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+
+  const rejectOrderPayment = async (orderCode: string) => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderCode}/reject-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Bukti transfer tidak sesuai atau belum masuk.' }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        onNotify(`Bukti pesanan ${orderCode} ditolak dan pembeli diberitahu.`);
+        setRejectTarget(null);
+        await onRefresh();
+      } else {
+        onNotify(d.error || 'Gagal menolak pesanan.', true);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const deleteOrderHistory = async (orderCode: string) => {
     setDeleting(true);
@@ -247,29 +276,49 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
 
   return (
     <div className="space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-xl bg-[#26042A] border border-[#F5C538]/30 p-3.5">
+          <div className="text-[11px] font-bold text-[#F7D160] uppercase">Perlu Verifikasi</div>
+          <div className="text-2xl font-black text-[#FFF5D6] mt-0.5">{pendingCount}</div>
+        </div>
+        <div className="rounded-xl bg-[#26042A] border border-[#A0D9CA]/35 p-3.5">
+          <div className="text-[11px] font-bold text-[#A0D9CA] uppercase">Transaksi Lunas</div>
+          <div className="text-2xl font-black text-[#A0D9CA] mt-0.5">{paidCount}</div>
+        </div>
+        <div className="rounded-xl bg-[#26042A] border border-[#F5C538]/30 p-3.5">
+          <div className="text-[11px] font-bold text-[#FDF39D] uppercase">Total Pemasukan Lunas</div>
+          <div className="text-2xl font-black text-[#FDF39D] mt-0.5">{formatRupiah(paidRevenue)}</div>
+        </div>
+      </div>
+
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h2 className="font-theatrical text-2xl sm:text-3xl font-extrabold text-[#FFF5D6]">
-            Pesanan Tiket, Kasir POS &amp; Resi Pengiriman
+            Transaksi, Verifikasi &amp; Resi
           </h2>
           <p className="text-xs sm:text-sm text-[#FFF5D6]/80">
-            Validasi pembayaran tunai di booth SinemaTIK, cek mutasi transfer, perbarui resi, atau hapus riwayat uji coba.
+            Cek bukti transfer, konfirmasi lunas tunai di booth SinemaTIK, perbarui resi, atau hapus riwayat uji coba.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {(['ALL', 'PENDING', 'PAID'] as const).map((st) => (
+          {[
+            { id: 'ALL', label: `Semua (${allOrders.length})` },
+            { id: 'PENDING', label: `Perlu Verifikasi (${pendingCount})` },
+            { id: 'PAID', label: `Lunas (${paidCount})` },
+            { id: 'REJECTED', label: 'Ditolak' },
+          ].map((st) => (
             <button
-              key={st}
+              key={st.id}
               type="button"
-              onClick={() => setFilterStatus(st)}
+              onClick={() => setFilterStatus(st.id as any)}
               className={`min-h-[44px] px-3.5 py-2 rounded-lg text-xs font-extrabold ${
-                filterStatus === st
+                filterStatus === st.id
                   ? 'bg-[#F5C538] text-[#310603]'
                   : 'bg-[#26042A] border border-[#F5C538]/30 text-[#FFF5D6]'
               }`}
             >
-              {st === 'ALL' ? 'Semua' : st}
+              {st.label}
             </button>
           ))}
         </div>
@@ -305,33 +354,53 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="px-2.5 py-0.5 rounded bg-[#1A021D] text-xs font-bold text-[#F7D160]">
-                    {ord.payment_method}
+                    {ord.qbiz_mode === 'STATIC_DYNAMIC_FALLBACK'
+                      ? 'QRIS + Bukti'
+                      : ord.payment_method === 'QBIZ_QRIS'
+                        ? 'QRIS'
+                        : ord.payment_method === 'CASH_BOOTH'
+                          ? 'Tunai Booth'
+                          : 'Transfer Bank'}
                   </span>
                   <span
                     className={`px-2.5 py-0.5 rounded text-xs font-extrabold ${
                       ord.payment_status === 'PAID'
                         ? 'bg-[#0F2F28] text-[#A0D9CA]'
-                        : 'bg-[#7D1B05] text-[#FDF39D]'
+                        : ord.payment_status === 'REJECTED'
+                          ? 'bg-[#7D1B05] text-[#F5B8CB]'
+                          : 'bg-[#310603] border border-[#F5C538]/50 text-[#FDF39D]'
                     }`}
                   >
-                    {ord.payment_status}
+                    {ord.payment_status === 'PAID'
+                      ? 'Lunas'
+                      : ord.payment_status === 'REJECTED'
+                        ? 'Ditolak'
+                        : ord.payment_proof_url || ord.payment_proof_note
+                          ? 'Cek Bukti'
+                          : 'Menunggu Bayar'}
                   </span>
                   <span className="text-sm font-extrabold text-[#FFF5D6]">{formatRupiah(ord.total_amount)}</span>
                 </div>
               </div>
 
-              <div className="text-xs text-[#FFF5D6]/80">
-                Mode: <strong>{ord.fulfillment_mode}</strong> ({ord.fulfillment_status}) • Alamat:{' '}
-                {ord.shipping_address || '-'}
-                {ord.payment_proof_note ? ` • Catatan Bukti: ${ord.payment_proof_note}` : ''}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-xs text-[#FFF5D6]/80">
                 {ord.payment_proof_url && (
-                  <>
-                    {' • '}
-                    <a href={ord.payment_proof_url} target="_blank" rel="noreferrer" className="underline font-bold text-[#FDF39D]">
-                      Lihat Foto Bukti
-                    </a>
-                  </>
+                  <a href={ord.payment_proof_url} target="_blank" rel="noreferrer" className="shrink-0">
+                    <img
+                      src={ord.payment_proof_url}
+                      alt={`Bukti ${ord.order_code}`}
+                      className="w-16 h-16 rounded-xl object-cover border border-[#F5C538]/40"
+                    />
+                  </a>
                 )}
+                <div className="space-y-1">
+                  <div>
+                    Pengambilan: <strong>{ord.fulfillment_mode === 'PICKUP_BOOTH' ? 'Ambil di Booth' : ord.fulfillment_mode === 'LOCAL_COURIER' ? 'Kurir Lokal' : 'Ekspedisi'}</strong> • Alamat: {ord.shipping_address || '-'}
+                  </div>
+                  {ord.payment_proof_note && (
+                    <div className="text-[#A0D9CA] font-semibold">Catatan Pembeli: {ord.payment_proof_note}</div>
+                  )}
+                </div>
               </div>
 
               {Array.isArray(ord.items) && ord.items.length > 0 && (
@@ -345,13 +414,22 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
               )}
 
               <div className="flex flex-col sm:flex-row flex-wrap gap-2.5 pt-1">
-                {ord.payment_status === 'PENDING' && (
+                {['PENDING', 'REJECTED'].includes(ord.payment_status) && (
                   <button
                     type="button"
                     onClick={() => confirmPay(ord.order_code)}
                     className="min-h-[44px] px-4 py-2 rounded-xl bg-[#A0D9CA] text-[#1A021D] text-xs font-extrabold"
                   >
-                    Konfirmasi Bayar Lunas (POS / Transfer)
+                    Terima &amp; Aktifkan
+                  </button>
+                )}
+                {ord.payment_status === 'PENDING' && (ord.payment_proof_url || ord.payment_proof_note) && (
+                  <button
+                    type="button"
+                    onClick={() => setRejectTarget(ord.order_code)}
+                    className="min-h-[44px] px-4 py-2 rounded-xl border border-[#F5C538]/50 text-[#FDF39D] text-xs font-bold"
+                  >
+                    Tolak Bukti
                   </button>
                 )}
 
@@ -396,6 +474,17 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
           ))}
         </div>
       )}
+      <ConfirmModal
+        open={Boolean(rejectTarget)}
+        title="Tolak Bukti Pembayaran?"
+        message={`Pesanan ${rejectTarget || ''} akan ditandai ditolak dan pembeli diminta mengunggah ulang bukti transfer yang valid.`}
+        confirmLabel="Ya, Tolak Bukti"
+        busy={deleting}
+        onCancel={() => setRejectTarget(null)}
+        onConfirm={async () => {
+          if (rejectTarget) await rejectOrderPayment(rejectTarget);
+        }}
+      />
       <ConfirmModal
         open={Boolean(deleteTarget)}
         title="Hapus Riwayat Transaksi?"

@@ -291,7 +291,7 @@ app.get('/api/catalog', async (c) => {
     },
     timeline: timelineRes.rows,
     qrisEnabled: qrisEnabled || (typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload)),
-    xenditEnabled: Boolean(process.env.XENDIT_CALLBACK_TOKEN?.trim() && !/local_test_only/i.test(process.env.XENDIT_CALLBACK_TOKEN)),
+    xenditEnabled: Boolean(process.env.XENDIT_CALLBACK_TOKEN?.trim() && !/^(local_test_only|replace_with_|changeme|example)/i.test(process.env.XENDIT_CALLBACK_TOKEN.trim())),
     fallbackQrisReady: typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload),
     fallbackQrisActive: Boolean(cfg.fallbackQrisForce && typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload)),
     ticketTiers: tiersRes.rows,
@@ -1612,6 +1612,40 @@ app.post('/api/admin/orders/:orderCode/confirm-payment', async (c) => {
   } finally {
     dbClient.release();
   }
+});
+
+app.post('/api/admin/orders/:orderCode/reject-payment', async (c) => {
+  const auth = requireRoles(c, ['ADMIN', 'CASHIER']);
+  if (auth instanceof Response) return auth;
+
+  const orderCode = c.req.param('orderCode').trim().toUpperCase();
+  const body = await c.req.json().catch(() => ({}));
+  const reason = String(body.reason || 'Bukti transfer tidak sesuai atau belum masuk.').trim().slice(0, 180);
+
+  const res = await pool.query(
+    `UPDATE orders
+     SET payment_status = 'REJECTED',
+         verified_by = $1
+     WHERE order_code = $2 AND payment_status IN ('PENDING', 'REJECTED')
+     RETURNING *`,
+    [`${auth.role}_REJECT:${auth.username}: ${reason}`.slice(0, 120), orderCode]
+  );
+  if (!res.rows[0]) {
+    return c.json({ success: false, error: 'Pesanan tidak ditemukan atau sudah berstatus lunas.' }, 404);
+  }
+  const ord = res.rows[0];
+  const custPhone = normalizePhone(ord.customer_phone);
+  if (custPhone) {
+    try {
+      await sendWhatsappText(
+        custPhone,
+        `Bukti pembayaran pesanan ${orderCode} belum dapat disetujui (${reason}). Silakan unggah ulang bukti transfer yang valid melalui ${PUBLIC_SITE_URL}/dompet-tiket.`
+      );
+    } catch {
+      // ignore WA notify error
+    }
+  }
+  return c.json({ success: true, order: ord });
 });
 
 app.post('/api/admin/orders/:orderCode/update-shipping', async (c) => {

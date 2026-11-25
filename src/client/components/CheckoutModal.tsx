@@ -51,10 +51,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [proofNote, setProofNote] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofError, setProofError] = useState('');
+  const [copiedTag, setCopiedTag] = useState('');
+  const [checkoutStep, setCheckoutStep] = useState<1 | 2>(1);
   const [settling, setSettling] = useState(false);
 
+  const copyToClipboard = (tag: string, value: string) => {
+    navigator.clipboard.writeText(value);
+    setCopiedTag(tag);
+    window.setTimeout(() => setCopiedTag(''), 1800);
+  };
+
   useEffect(() => {
-    if (open && !createdResult) setPaymentMethod(qrisEnabled ? 'QBIZ_QRIS' : 'CASH_BOOTH');
+    if (open && !createdResult) {
+      setPaymentMethod(qrisEnabled ? 'QBIZ_QRIS' : 'CASH_BOOTH');
+      setCheckoutStep(1);
+      setErrorMsg('');
+    }
   }, [open, qrisEnabled, createdResult]);
 
   const hasMerch = cart.some((item) => item.itemType === 'MERCH');
@@ -251,11 +263,28 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               className={`rounded-2xl p-4 border ${
                 createdResult.order.payment_status === 'PAID'
                   ? 'bg-[#0F2F28] border-[#A0D9CA] text-[#A0D9CA]'
+                  : createdResult.order.payment_status === 'REJECTED'
+                  ? 'bg-[#310603] border-[#F5B8CB] text-[#F5B8CB]'
                   : 'bg-[#310603] border-[#F5C538] text-[#FDF39D]'
               }`}
             >
-              <div className="text-xs font-bold uppercase tracking-wider">
-                Status Pembayaran: {createdResult.order.payment_status}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-extrabold uppercase tracking-wider">
+                  {createdResult.order.payment_status === 'PAID'
+                    ? 'Lunas & Aktif'
+                    : createdResult.order.payment_status === 'REJECTED'
+                    ? 'Bukti Ditolak'
+                    : createdResult.order.payment_proof_url
+                    ? 'Menunggu Verifikasi Admin'
+                    : 'Menunggu Pembayaran'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard('code', createdResult.order.order_code)}
+                  className="min-h-[36px] px-3 rounded-lg bg-[#1A021D]/70 border border-[#F5C538]/40 text-[11px] font-mono font-bold text-[#FDF39D]"
+                >
+                  {copiedTag === 'code' ? 'Kode Disalin!' : `Salin ${createdResult.order.order_code}`}
+                </button>
               </div>
               <div className="text-lg font-extrabold mt-1">
                 {createdResult.order.payment_status === 'PAID'
@@ -264,24 +293,33 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   ? 'Bukti Pembayaran Ditolak. Silakan Unggah Ulang Bukti Valid.'
                   : createdResult.order.payment_method === 'QBIZ_QRIS'
                   ? createdResult.order.qbiz_mode === 'STATIC_DYNAMIC_FALLBACK'
-                    ? 'Pindai QRIS Dinamis Berikut & Unggah Bukti Pembayaran'
-                    : 'Pindai QRIS Dinamis QBiz Berikut (Berlaku 5 Menit)'
+                    ? '1. Pindai QRIS Dinamis -> 2. Unggah Bukti Transfer'
+                    : 'Pindai QRIS Dinamis Berikut (Berlaku 5 Menit)'
                   : createdResult.order.payment_method === 'CASH_BOOTH'
                   ? 'Silakan Bayar Tunai di Booth SinemaTIK SMAN 1 Gedeg'
-                  : 'Menunggu Verifikasi Transfer Bank / Gateway'}
+                  : 'Transfer Rekening & Unggah Bukti Pembayaran'}
               </div>
             </div>
 
             {['PENDING', 'REJECTED'].includes(createdResult.order.payment_status) &&
               createdResult.order.payment_method === 'QBIZ_QRIS' && (
                 <div className="rounded-2xl bg-[#1A021D] border border-[#F5C538]/50 p-5 text-center space-y-4">
-                  <div className="bg-[#310603] border border-[#F5C538] rounded-xl p-3">
-                    <div className="text-xs text-[#F7D160] font-semibold">
-                      WAJIB BAYAR PERSIS NOMINAL TOTAL BERIKUT (TERMASUK KODE UNIK {createdResult.order.unique_code}):
+                  <div className="bg-[#310603] border border-[#F5C538] rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-left">
+                    <div>
+                      <div className="text-[11px] text-[#F7D160] font-semibold">
+                        NOMINAL TOTAL PERSIS (TERMASUK KODE UNIK {createdResult.order.unique_code}):
+                      </div>
+                      <div className="text-2xl sm:text-3xl font-black text-[#FDF39D] mt-0.5 tabular-nums">
+                        {formatRupiah(createdResult.order.total_amount)}
+                      </div>
                     </div>
-                    <div className="text-3xl font-black text-[#FDF39D] mt-1 tabular-nums">
-                      {formatRupiah(createdResult.order.total_amount)}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard('amt', String(createdResult.order.total_amount))}
+                      className="min-h-[44px] px-4 rounded-xl bg-[#F5C538] text-[#310603] text-xs font-extrabold shrink-0"
+                    >
+                      {copiedTag === 'amt' ? 'Nominal Disalin!' : 'Salin Nominal'}
+                    </button>
                   </div>
 
                   {createdResult.qrisDataUrl && (
@@ -467,8 +505,47 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </button>
           </div>
         ) : (
-          /* CHECKOUT FORM */
+          /* 2-STEP CHECKOUT FORM */
           <form onSubmit={handleCheckout} className="space-y-5">
+            {/* Step Indicator */}
+            <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-[#1A021D] border border-[#F5C538]/30 p-1">
+              <button
+                type="button"
+                onClick={() => { setErrorMsg(''); setCheckoutStep(1); }}
+                className={`min-h-[44px] rounded-lg text-xs font-extrabold transition-colors ${
+                  checkoutStep === 1 ? 'bg-[#F5C538] text-[#310603]' : 'text-[#FFF5D6]/80'
+                }`}
+              >
+                1. Data &amp; Pengiriman
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!customerName.trim() || !customerPhone.trim()) {
+                    setErrorMsg('Isi Nama Lengkap dan Nomor WhatsApp terlebih dahulu.');
+                    return;
+                  }
+                  if (requiresStudentId && !identityNumber.trim()) {
+                    setErrorMsg('NISN / NIP wajib diisi untuk tiket internal.');
+                    return;
+                  }
+                  if (hasMerch && fulfillmentMode !== 'PICKUP_BOOTH' && !shippingAddress.trim()) {
+                    setErrorMsg('Alamat lengkap penerima wajib diisi untuk pengiriman.');
+                    return;
+                  }
+                  setErrorMsg('');
+                  setCheckoutStep(2);
+                }}
+                className={`min-h-[44px] rounded-lg text-xs font-extrabold transition-colors ${
+                  checkoutStep === 2 ? 'bg-[#F5C538] text-[#310603]' : 'text-[#FFF5D6]/80'
+                }`}
+              >
+                2. Pembayaran ({formatRupiah(subtotal + estimatedShipping)})
+              </button>
+            </div>
+
+            {checkoutStep === 1 && (
+              <div className="space-y-5">
             {/* Cart Items List */}
             <div className="space-y-2.5">
               <h3 className="text-xs font-bold uppercase tracking-wider text-[#F7D160]">Ringkasan Item ({cart.length})</h3>
@@ -688,28 +765,66 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             )}
 
+              {errorMsg && (
+                <div role="alert" className="p-3 rounded-lg bg-[#310603] border border-[#F5B8CB] text-xs font-bold text-[#F5B8CB]">
+                  {errorMsg}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!customerName.trim() || !customerPhone.trim()) {
+                    setErrorMsg('Isi Nama Lengkap dan Nomor WhatsApp terlebih dahulu.');
+                    return;
+                  }
+                  if (requiresStudentId && !identityNumber.trim()) {
+                    setErrorMsg('NISN / NIP wajib diisi untuk tiket internal.');
+                    return;
+                  }
+                  if (hasMerch && fulfillmentMode !== 'PICKUP_BOOTH' && !shippingAddress.trim()) {
+                    setErrorMsg('Alamat lengkap penerima wajib diisi untuk pengiriman.');
+                    return;
+                  }
+                  setErrorMsg('');
+                  setCheckoutStep(2);
+                }}
+                className="w-full min-h-[50px] px-6 py-3 rounded-xl bg-[#F5C538] text-[#310603] font-extrabold text-sm hover:brightness-105"
+              >
+                Lanjut ke Pilih Pembayaran &rarr;
+              </button>
+            </div>
+            )}
+
+            {checkoutStep === 2 && (
+            <div className="space-y-5">
             {/* Hybrid Payment Method */}
             <div className="space-y-3 rounded-xl bg-[#1A021D]/70 border border-[#F5C538]/25 p-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#F7D160]">Metode Pembayaran</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#F7D160]">Pilih Metode Pembayaran</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {[
-                  ...(qrisEnabled ? [{ id: 'QBIZ_QRIS', title: 'Bayar dengan QRIS', sub: 'Pindai QRIS untuk membayar' }] : []),
-                  { id: 'CASH_BOOTH', title: 'Bayar Tunai di Booth SinemaTIK', sub: 'Verifikasi langsung oleh Tim SinemaTIK' },
-                  ...(xenditEnabled ? [{ id: 'XENDIT', title: 'Xendit Gateway (VA / E-Wallet)', sub: 'Pembayaran via Virtual Account' }] : []),
-                  { id: 'MANUAL_TRANSFER', title: 'Transfer Rekening SinemaTIK', sub: 'Unggah catatan bukti transfer' },
+                  ...(qrisEnabled ? [{ id: 'QBIZ_QRIS', title: 'Bayar dengan QRIS', sub: 'Pindai QRIS untuk membayar', tag: 'Rekomendasi' }] : []),
+                  { id: 'CASH_BOOTH', title: 'Bayar Tunai di Booth SinemaTIK', sub: 'Verifikasi langsung oleh Tim SinemaTIK', tag: 'Di Lokasi' },
+                  ...(xenditEnabled ? [{ id: 'XENDIT', title: 'Xendit Gateway (VA / E-Wallet)', sub: 'Pembayaran via Virtual Account', tag: 'Otomatis' }] : []),
+                  { id: 'MANUAL_TRANSFER', title: 'Transfer Rekening SinemaTIK', sub: 'Unggah catatan bukti transfer', tag: 'Manual' },
                 ].map((pm) => (
                   <button
                     key={pm.id}
                     type="button"
                     aria-pressed={paymentMethod === pm.id}
                     onClick={() => setPaymentMethod(pm.id as any)}
-                    className={`min-h-[54px] p-3 rounded-xl border text-left transition-all ${
+                    className={`min-h-[60px] p-3.5 rounded-xl border text-left transition-all ${
                       paymentMethod === pm.id
                         ? 'bg-[#310603] border-[#F5C538] text-[#FDF39D]'
                         : 'bg-[#26042A] border-[#F5C538]/25 text-[#FFF5D6]/85'
                     }`}
                   >
-                    <div className="text-sm font-extrabold">{pm.title}</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-extrabold">{pm.title}</span>
+                      <span className="rounded-full bg-[#1A021D] border border-[#F5C538]/30 px-2 py-0.5 text-[10px] font-bold text-[#A0D9CA] shrink-0">
+                        {pm.tag}
+                      </span>
+                    </div>
                     <div className="text-xs opacity-90 mt-1">{pm.sub}</div>
                   </button>
                 ))}
@@ -742,13 +857,24 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </p>
             </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full min-h-[50px] px-6 py-3 rounded-xl bg-gradient-to-r from-[#E09D17] via-[#F5C538] to-[#F7D160] text-[#310603] font-extrabold text-sm sm:text-base"
-            >
-              {submitting ? 'Membuat Pesanan & QR...' : 'Konfirmasi Pesanan Sekarang'}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => { setErrorMsg(''); setCheckoutStep(1); }}
+                className="min-h-[48px] px-5 rounded-xl border border-[#F5C538]/45 text-xs font-extrabold text-[#FDF39D] sm:w-40"
+              >
+                &larr; Kembali
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex-1 min-h-[50px] px-6 py-3 rounded-xl bg-gradient-to-r from-[#E09D17] via-[#F5C538] to-[#F7D160] text-[#310603] font-extrabold text-sm sm:text-base"
+              >
+                {submitting ? 'Membuat Pesanan & QR...' : 'Buat Pesanan & Bayar'}
+              </button>
+            </div>
+            </div>
+            )}
           </form>
         )}
     </ResponsiveSheet>
