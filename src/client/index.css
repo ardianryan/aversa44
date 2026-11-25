@@ -629,7 +629,7 @@
 @media (max-width: 640px) { .obs-full-anniversary img { width: 28px; height: 36px; } }
 
 /* Exit finishes before the latest broadcast state is mounted. */
-.obs-scene-leaving .obs-frame, .obs-scene-leaving .obs-standby-copy, .obs-scene-leaving .obs-stage-props, .obs-scene-leaving .obs-curtain, .obs-scene-leaving .obs-standby-credits { animation: obsSoftExit .46s cubic-bezier(.4, 0, .2, 1) forwards; }
+.obs-scene-leaving .obs-standby-copy, .obs-scene-leaving .obs-stage-props, .obs-scene-leaving .obs-curtain, .obs-scene-leaving .obs-standby-credits { animation: obsSoftExit .46s cubic-bezier(.4, 0, .2, 1) forwards; }
 .obs-logos-leaving { animation: obsSoftExit .46s cubic-bezier(.4, 0, .2, 1) forwards; }
 @keyframes obsSoftExit { to { opacity: 0; transform: translateY(-18px) scale(.985); filter: blur(3px); } }
 .obs-full-identity > *, .obs-full-partner > *, .obs-primary-sponsors > div, .obs-official-partner > * { animation: obsOrnamentReveal 1.1s cubic-bezier(.16, 1, .3, 1) both; }

@@ -5,6 +5,34 @@ export function normalizeIp(value: string): string | null {
   return isIP(input) ? input.toLowerCase() : null;
 }
 
+export function isPrivateOrTailscaleIp(ip: string | null): boolean {
+  if (!ip) return false;
+  if (ip === '127.0.0.1' || ip === '::1') return true;
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return false;
+  const [a, b] = parts;
+  if (a === 10) return true; // 10.0.0.0/8 (LAN / VPN)
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 (Docker / LAN)
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16 (LAN)
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 (Tailscale CGNAT)
+  return false;
+}
+
+export function isAllowedOrigin(origin: string | undefined, publicSiteUrl: string, isDev: boolean): boolean {
+  if (!origin) return false;
+  if (origin === publicSiteUrl) return true;
+  if (isDev && /^http:\/\/(localhost|127\.0\.0\.1):5173$/.test(origin)) return true;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.replace(/^\[|\]$/g, '');
+    if (host === 'localhost') return true;
+    return isPrivateOrTailscaleIp(normalizeIp(host));
+  } catch {
+    return false;
+  }
+}
+
 export function resolveClientIp(peer: string, forwarded: string, trusted: string[]): string | null {
   const socketIp = normalizeIp(peer);
   if (!socketIp) return null;

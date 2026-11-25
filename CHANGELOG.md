@@ -4,6 +4,11 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.14 - 2026-11-25
+
+- Server CORS & Network Access: Allow direct access and browser writes from private LAN (`10.*`, `172.16-31.*`, `192.168.*`) and Tailscale (`100.64-127.*`) IPs/origins, and scope `secure` cookie flag to HTTPS requests so local/Tailscale HTTP sessions work seamlessly when internet/CDN is degraded.
+- OBS Live Broadcast Motion: Remove conflicting CSS `.obs-scene-leaving .obs-frame` animation and prime `[data-motion-detail]` elements at `0ms` so `BroadcastPanelMotion` transitions enter and exit without any 1-frame flash.
+
 ## 0.2.13 - 2026-11-25
 
 - OBS Live Broadcast (`/obs`): Redesign overlay composition to remove forced stacked sponsor boxes below camera presets (`lower_third`, `guest_spotlight`, `rundown_schedule`, `corner_bug`), align `Official Media Partner` horizontally at top-right opposite the school identity at top-left, use a single-row left-to-right sponsor ribbon at the bottom on `full_frame`, integrate 1 rotating sponsor inside `lower_third`, and preserve `standby_soon` and `sponsor_wall`.

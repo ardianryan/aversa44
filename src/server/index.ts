@@ -1,6 +1,6 @@
 import { sealCloudSecret } from './security/cloud-secrets.ts';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { normalizeIp, resolveClientIp, verifyTurnstile } from './security/edge.ts';
+import { isAllowedOrigin, isPrivateOrTailscaleIp, normalizeIp, resolveClientIp, verifyTurnstile } from './security/edge.ts';
 import { sendWalletReply } from './wallet-replies.ts';
 import { normalizePhone, otpDigest, signWalletAccess, verifyWalletAccess } from './wallet-auth.ts';
 import 'dotenv/config';
@@ -44,10 +44,14 @@ const trustedProxies = (process.env.TRUSTED_PROXY_IPS || '').split(',').map((ip)
 const localBypass = process.env.ALLOW_INSECURE_LOCAL_DEV === '1' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(PUBLIC_SITE_URL);
 const buckets = new Map<string, { count: number; until: number }>();
 
+const isHttpsRequest = (c: any): boolean =>
+  c.req.header('X-Forwarded-Proto') === 'https' || c.req.url.startsWith('https://');
+
 app.use('*', async (c, next) => {
   const peer = normalizeIp(getConnInfo(c).remote.address || '');
   const isHealth = c.req.path === '/api/health' && (peer === '127.0.0.1' || peer === '::1');
-  if (process.env.NODE_ENV === 'production' && !localBypass && !isHealth && (!peer || !trustedProxies.includes(peer))) {
+  const isAllowedDirectPeer = isPrivateOrTailscaleIp(peer);
+  if (process.env.NODE_ENV === 'production' && !localBypass && !isHealth && !isAllowedDirectPeer && (!peer || !trustedProxies.includes(peer))) {
     return c.json({ success: false, error: 'Akses tidak diizinkan.' }, 403);
   }
   const ip = resolveClientIp(peer || '', c.req.header('X-Real-IP') || '', trustedProxies);
@@ -86,8 +90,7 @@ app.use('*', async (c, next) => {
 app.use('/api/*', cors({
   origin: (origin) => {
     if (!origin) return PUBLIC_SITE_URL;
-    if (origin === PUBLIC_SITE_URL) return origin;
-    if (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1):5173$/.test(origin)) return origin;
+    if (isAllowedOrigin(origin, PUBLIC_SITE_URL, process.env.NODE_ENV !== 'production')) return origin;
     return '';
   },
   credentials: true,
@@ -96,8 +99,7 @@ app.use('/api/*', cors({
 // Reject browser cross-origin writes; webhooks without Origin remain supported.
 app.use('/api/*', async (c, next) => {
   const origin = c.req.header('Origin');
-  const allowed = origin === PUBLIC_SITE_URL ||
-    (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1):5173$/.test(origin || ''));
+  const allowed = isAllowedOrigin(origin, PUBLIC_SITE_URL, process.env.NODE_ENV !== 'production');
   if (origin && !allowed && !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
     return c.json({ success: false, error: 'Permintaan dari alamat ini tidak diizinkan.' }, 403);
   }
@@ -1011,7 +1013,7 @@ app.post('/api/auth/login', async (c) => {
     sameSite: 'Lax',
     path: '/',
     maxAge: 43200,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isHttpsRequest(c),
   });
 
   return c.json({

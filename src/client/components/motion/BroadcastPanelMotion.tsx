@@ -97,84 +97,88 @@ export const BroadcastPanelMotion: React.FC<BroadcastPanelMotionProps> = ({
       };
     }
 
-    // Enter phase
-    const details = node.querySelectorAll('[data-motion-detail]');
+    // Enter phase: prime detail elements immediately at 0ms so they never flash before stagger starts
+    const details = Array.from(node.querySelectorAll<HTMLElement>('[data-motion-detail]'));
+    for (const el of details) {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(10px)';
+    }
 
     if (preset === 'broadcast_wipe') {
       tl.add(node, {
         opacity: [0, 1],
         clipPath: ['inset(0 100% 0 0% round 14px)', 'inset(0 0% 0 0% round 14px)'],
-        duration: 680,
+        duration: 620,
         ease: 'outExpo',
       }, 0);
       if (beam) {
         tl.add(beam, {
-          opacity: [0, 0.95, 0],
+          opacity: [0, 0.9, 0],
           translateX: ['-20%', '120%'],
-          duration: 680,
+          duration: 620,
           ease: 'outExpo',
-        }, 40);
+        }, 30);
       }
       if (details.length) {
         tl.add(details, {
           opacity: [0, 1],
-          translateY: [12, 0],
-          duration: 520,
-          delay: stagger(75),
-          ease: 'outQuint',
-        }, 160);
+          translateY: [10, 0],
+          duration: 480,
+          delay: stagger(65),
+          ease: 'outCubic',
+        }, 120);
       }
     } else if (preset === 'slide_edge') {
       tl.add(
         node,
         origin === 'left'
-          ? { translateX: [-56, 0], opacity: [0, 1], duration: 650, ease: 'outBack(1.15)' }
-          : { translateY: origin === 'top' ? [-36, 0] : [48, 0], opacity: [0, 1], duration: 650, ease: 'outBack(1.15)' },
+          ? { translateX: [-48, 0], opacity: [0, 1], duration: 580, ease: 'outCubic' }
+          : { translateY: origin === 'top' ? [-30, 0] : [40, 0], opacity: [0, 1], duration: 580, ease: 'outCubic' },
         0,
       );
       if (details.length) {
         tl.add(details, {
           opacity: [0, 1],
-          translateY: [14, 0],
-          duration: 500,
-          delay: stagger(70),
-          ease: 'outQuint',
-        }, 140);
+          translateY: [10, 0],
+          duration: 460,
+          delay: stagger(60),
+          ease: 'outCubic',
+        }, 100);
       }
     } else if (preset === 'zoom_pop') {
       tl.add(node, {
-        scale: [0.91, 1],
+        scale: [0.93, 1],
         opacity: [0, 1],
-        filter: ['blur(8px)', 'blur(0px)'],
-        duration: 580,
-        ease: 'outBack(1.25)',
+        filter: ['blur(6px)', 'blur(0px)'],
+        duration: 540,
+        ease: 'outCubic',
       }, 0);
       if (details.length) {
         tl.add(details, {
           opacity: [0, 1],
-          translateY: [10, 0],
-          duration: 460,
-          delay: stagger(65),
-          ease: 'outQuint',
-        }, 120);
+          translateY: [8, 0],
+          duration: 440,
+          delay: stagger(55),
+          ease: 'outCubic',
+        }, 90);
       }
     } else {
       // fade_smooth
       tl.add(node, {
         opacity: [0, 1],
-        translateY: [10, 0],
+        translateY: [8, 0],
         filter: ['blur(4px)', 'blur(0px)'],
-        duration: 620,
+        duration: 560,
         ease: 'outQuad',
       }, 0);
       if (details.length) {
         tl.add(details, {
           opacity: [0, 1],
           translateY: [8, 0],
-          duration: 500,
-          delay: stagger(60),
+          duration: 460,
+          delay: stagger(55),
           ease: 'outQuad',
-        }, 140);
+        }, 110);
       }
     }
 
