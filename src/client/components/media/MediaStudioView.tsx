@@ -358,18 +358,30 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       const safePad = Math.round(u * 0.055);
       const activeFilter = FILTER_CSS[colorFilter].css;
       const activeSponsors = includeSponsors ? mediaData.mediaSponsors.filter(s => s.is_active).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id) : [];
-      const extraRows = Math.ceil(Math.max(0, activeSponsors.length - 3) / 6);
-      const sponsorHeight = activeSponsors.length ? u * (0.13 + extraRows * 0.055) : 0;
-      const partnerHeight = mediaPartner ? u * 0.085 : 0;
-      const creditsHeight = sponsorHeight + partnerHeight;
+      const supportingCount = Math.max(0, activeSponsors.length - 3);
+      const extraRows = supportingCount > 0 ? Math.ceil(supportingCount / 6) : 0;
+      const primaryRowH = u * 0.115;
+      const supportingRowStep = u * 0.078;
+      const sponsorHeaderH = u * 0.038;
+      const sponsorHeight = activeSponsors.length ? sponsorHeaderH + primaryRowH + extraRows * supportingRowStep + u * 0.012 : 0;
+      const partnerHeight = mediaPartner ? u * 0.115 : 0;
+      const sideBySideCredits = isLandscape && activeSponsors.length > 0 && Boolean(mediaPartner);
+      const creditsHeight = (activeSponsors.length > 0 || mediaPartner)
+        ? (sideBySideCredits ? Math.max(sponsorHeight, partnerHeight) + u * 0.012 : sponsorHeight + partnerHeight + (activeSponsors.length > 0 && mediaPartner ? u * 0.014 : 0))
+        : 0;
       const verticalSafe = aspectRatio === '9:16' ? h * 0.12 : safePad;
-      const bottomEdgePad = Math.round(u * 0.032);
-      const creditsY = h - bottomEdgePad - creditsHeight;
-      const cardBottomY = creditsHeight > 0 ? creditsY - u * 0.018 : h - verticalSafe - u * 0.02;
-      const textWidth = isLandscape && template === 'promo_store' ? w * 0.4 : w - safePad * 2;
+      const bottomEdgePad = aspectRatio === '9:16' ? Math.round(h * 0.072) : Math.round(u * 0.045);
+      const mainCreditsY = h - bottomEdgePad - creditsHeight;
+      const cardBottomY = creditsHeight > 0 ? mainCreditsY - u * 0.022 : h - bottomEdgePad;
+      const textWidth = isLandscape && template === 'promo_store' ? w * 0.45 : w - safePad * 2;
+      const hasBadge = customBadge.trim().length > 0;
+      const hasTitle = customTitle.trim().length > 0;
+      const hasSubtitle = customSubtitle.trim().length > 0;
+      const hasFooter = customFooterNote.trim().length > 0;
+      const hasAnyText = hasBadge || hasTitle || hasSubtitle || hasFooter;
       ctx.save();
-      const titleFit = fitCanvasLines(ctx, customTitle, textWidth, 800, '"Playfair Display", Georgia, serif', Math.round(u * 0.068));
-      const subtitleFit = fitCanvasLines(ctx, customSubtitle, textWidth, 600, '"Plus Jakarta Sans", sans-serif', Math.round(u * 0.036));
+      const titleFit = hasTitle ? fitCanvasLines(ctx, customTitle, textWidth, 800, '"Playfair Display", Georgia, serif', Math.round(u * 0.068)) : { lines: [], size: Math.round(u * 0.068) };
+      const subtitleFit = hasSubtitle ? fitCanvasLines(ctx, customSubtitle, textWidth, 600, '"Plus Jakarta Sans", sans-serif', Math.round(u * 0.036)) : { lines: [], size: Math.round(u * 0.036) };
       ctx.restore();
       const titleFontSize = titleFit.size;
       const subtitleFontSize = subtitleFit.size;
@@ -377,13 +389,33 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
       const subtitleLineHeight = subtitleFontSize * 1.22;
       const titleLines = titleFit.lines;
       const subLines = subtitleFit.lines;
-      const footerY = cardBottomY - u * 0.028;
-      const subtitleLastY = footerY - u * 0.058;
-      const subtitleFirstY = subtitleLastY - Math.max(0, subLines.length - 1) * subtitleLineHeight;
-      const titleLastY = subtitleFirstY - subtitleFontSize * 0.65 - titleFontSize * 0.65 - u * 0.014;
-      const titleFirstY = titleLastY - Math.max(0, titleLines.length - 1) * titleLineHeight;
       const badgeH = Math.round(u * 0.054);
-      const textTopStart = titleFirstY - titleFontSize * 0.68 - badgeH - u * 0.016;
+
+      // Smart bottom-up auto-collapse: empty fields leave zero dead vertical gap.
+      let textCursorY = cardBottomY;
+      let footerY = textCursorY;
+      if (hasFooter) {
+        footerY = textCursorY - u * 0.02;
+        textCursorY = footerY - u * 0.028;
+      }
+      let subtitleFirstY = textCursorY;
+      if (hasSubtitle && subLines.length > 0) {
+        const subtitleLastY = textCursorY - subtitleFontSize * 0.55;
+        subtitleFirstY = subtitleLastY - Math.max(0, subLines.length - 1) * subtitleLineHeight;
+        textCursorY = subtitleFirstY - subtitleFontSize * 0.6 - u * 0.012;
+      }
+      let titleFirstY = textCursorY;
+      if (hasTitle && titleLines.length > 0) {
+        const titleLastY = textCursorY - titleFontSize * 0.52;
+        titleFirstY = titleLastY - Math.max(0, titleLines.length - 1) * titleLineHeight;
+        textCursorY = titleFirstY - titleFontSize * 0.65 - u * 0.014;
+      }
+      let badgeTopY = textCursorY;
+      if (hasBadge) {
+        badgeTopY = textCursorY - badgeH;
+        textCursorY = badgeTopY - u * 0.012;
+      }
+      const textTopStart = textCursorY;
 
       // Stage texture remains behind uploaded media.
       ctx.save();
@@ -554,49 +586,71 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         }
       }
 
-      // Official school crest and AVERSA wordmark form the identity lockup.
-      const topY = verticalSafe + Math.round(u * 0.015);
-      const crestH = Math.round(u * 0.074);
-      ctx.save();
-      ctx.fillStyle = 'rgba(26,2,29,0.88)';
-      ctx.strokeStyle = 'rgba(245,197,56,0.62)';
-      ctx.lineWidth = Math.max(1.5, u * 0.002);
-      drawRoundRectPath(ctx, safePad - u * 0.015, topY - u * 0.012, w - safePad * 2 + u * 0.03, crestH + u * 0.024, u * 0.018);
-      ctx.fill(); ctx.stroke(); ctx.restore();
-      let cursorX = safePad;
-      for (const crestPath of [
-        '/assets/extracted/logo-sman1gedeg.png',
-      ]) {
-        const cImg = ensureImage(crestPath);
-        if (cImg) {
-          const cw = Math.round(crestH * (cImg.naturalWidth / Math.max(1, cImg.naturalHeight)));
-          ctx.drawImage(cImg, cursorX, topY, cw, crestH);
-          cursorX += cw + Math.round(u * 0.016);
-        }
-      }
+      // Unified top-center identity lockup: SMAN 1 Gedeg | 44 | AVERSA.
+      const topY = verticalSafe + Math.round(u * 0.012);
+      const drawIdentityPill = (pillTopY: number) => {
+        const crestH = Math.round(u * 0.064);
+        const pillPadX = Math.round(u * 0.028);
+        const pillPadY = Math.round(u * 0.014);
+        const gap = Math.round(u * 0.022);
+        const schoolImg = ensureImage('/assets/extracted/logo-sman1gedeg.png');
+        const annivImg = ensureImage('/assets/svg/dies-natalis-44-tight.svg');
+        const wordImg = ensureImage('/assets/svg/aversa-wordmark-tight.svg');
+        const sw = schoolImg ? Math.round(crestH * (schoolImg.naturalWidth / Math.max(1, schoolImg.naturalHeight))) : Math.round(crestH * 0.85);
+        const aw = annivImg ? Math.round(crestH * 0.95 * (annivImg.naturalWidth / Math.max(1, annivImg.naturalHeight))) : Math.round(crestH * 0.8);
+        const ww = wordImg ? Math.round(crestH * 0.78 * (wordImg.naturalWidth / Math.max(1, wordImg.naturalHeight))) : Math.round(crestH * 2.4);
+        const wh = Math.round(crestH * 0.78);
+        const innerW = sw + aw + ww + gap * 4;
+        const pillW = innerW + pillPadX * 2;
+        const pillH = crestH + pillPadY * 2;
+        const pillX = (w - pillW) / 2;
 
-      ctx.save();
-      ctx.fillStyle = '#FFF5D6';
-      ctx.font = `700 ${Math.round(u * 0.025)}px "Plus Jakarta Sans", sans-serif`;
-      ctx.textBaseline = 'middle';
-      ctx.fillText('SMA NEGERI 1 GEDEG', cursorX, topY + crestH * 0.5, w * 0.42);
-      ctx.restore();
+        ctx.save();
+        ctx.fillStyle = 'rgba(24, 2, 27, 0.90)';
+        ctx.strokeStyle = 'rgba(245, 197, 56, 0.65)';
+        ctx.lineWidth = Math.max(1.5, u * 0.002);
+        drawRoundRectPath(ctx, pillX, pillTopY, pillW, pillH, pillH / 2);
+        ctx.fill();
+        ctx.stroke();
 
-      const logotype = ensureImage('/assets/png/aversa-logotype-horizontal.png');
-      if (logotype) {
-        const lH = Math.round(u * 0.064);
-        const lW = Math.round(lH * (logotype.naturalWidth / Math.max(1, logotype.naturalHeight)));
-        ctx.drawImage(logotype, w - safePad - lW, topY + 4, lW, lH);
-      }
+        let cx = pillX + pillPadX;
+        const midY = pillTopY + pillH / 2;
+        if (schoolImg) ctx.drawImage(schoolImg, cx, midY - crestH / 2, sw, crestH);
+        cx += sw + gap;
+
+        ctx.strokeStyle = 'rgba(245, 197, 56, 0.45)';
+        ctx.lineWidth = Math.max(1, u * 0.0018);
+        ctx.beginPath();
+        ctx.moveTo(cx, midY - crestH * 0.38);
+        ctx.lineTo(cx, midY + crestH * 0.38);
+        ctx.stroke();
+        cx += gap;
+
+        const ah = Math.round(crestH * 0.95);
+        if (annivImg) ctx.drawImage(annivImg, cx, midY - ah / 2, aw, ah);
+        cx += aw + gap;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, midY - crestH * 0.38);
+        ctx.lineTo(cx, midY + crestH * 0.38);
+        ctx.stroke();
+        cx += gap;
+
+        if (wordImg) ctx.drawImage(wordImg, cx, midY - wh / 2, ww, wh);
+        ctx.restore();
+      };
+      drawIdentityPill(topY);
 
       // 7. Bottom Theatrical Typography Card & Sponsor Auto-Stamp Strip
       ctx.save();
-      const grad = ctx.createLinearGradient(0, textTopStart - Math.round(u * 0.12), 0, h);
-      grad.addColorStop(0, 'rgba(26, 2, 29, 0)');
-      grad.addColorStop(0.28, 'rgba(26, 2, 29, 0.90)');
-      grad.addColorStop(1, 'rgba(13, 1, 15, 0.97)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, textTopStart - Math.round(u * 0.12), w, h - (textTopStart - Math.round(u * 0.12)));
+      if (hasAnyText) {
+        const grad = ctx.createLinearGradient(0, textTopStart - Math.round(u * 0.12), 0, h);
+        grad.addColorStop(0, 'rgba(26, 2, 29, 0)');
+        grad.addColorStop(0.28, 'rgba(26, 2, 29, 0.90)');
+        grad.addColorStop(1, 'rgba(13, 1, 15, 0.97)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, textTopStart - Math.round(u * 0.12), w, h - (textTopStart - Math.round(u * 0.12)));
+      }
 
       // A short staggered entrance keeps the video preview and rendered export in sync.
       if (motionEnabled) {
@@ -605,81 +659,96 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         ctx.translate(0, (1 - reveal) * u * 0.035);
       }
 
-      // Pill Badge with animated golden sheen
-      ctx.font = `700 ${Math.round(u * 0.026)}px "Cinzel", Georgia, serif`;
-      const badgeW = Math.min(w - safePad * 2, ctx.measureText(customBadge.toUpperCase()).width + Math.round(u * 0.07));
       const centered = template === 'countdown';
       const textX = centered ? w / 2 : safePad;
-      const badgeX = centered ? (w - badgeW) / 2 : safePad;
 
-      ctx.fillStyle = '#310603';
-      ctx.strokeStyle = '#F5C538';
-      ctx.lineWidth = 2.5;
-      drawRoundRectPath(ctx, badgeX, textTopStart, badgeW, badgeH, badgeH / 2);
-      ctx.fill();
-      ctx.stroke();
+      // Pill Badge with animated golden sheen
+      if (hasBadge) {
+        ctx.font = `700 ${Math.round(u * 0.026)}px "Cinzel", Georgia, serif`;
+        const badgeW = Math.min(w - safePad * 2, ctx.measureText(customBadge.toUpperCase()).width + Math.round(u * 0.07));
+        const badgeX = centered ? (w - badgeW) / 2 : safePad;
 
-      if (motionEnabled) {
-        ctx.save();
-        drawRoundRectPath(ctx, badgeX, textTopStart, badgeW, badgeH, badgeH / 2);
-        ctx.clip();
-        const sweep = ((elapsedSec * 0.55) % 1.8) - 0.4;
-        const sheenX = badgeX + sweep * badgeW;
-        const sheen = ctx.createLinearGradient(sheenX - u * 0.08, 0, sheenX + u * 0.08, 0);
-        sheen.addColorStop(0, 'rgba(253, 243, 157, 0)');
-        sheen.addColorStop(0.5, 'rgba(253, 243, 157, 0.28)');
-        sheen.addColorStop(1, 'rgba(253, 243, 157, 0)');
-        ctx.fillStyle = sheen;
-        ctx.fillRect(badgeX, textTopStart, badgeW, badgeH);
-        ctx.restore();
+        ctx.fillStyle = '#310603';
+        ctx.strokeStyle = '#F5C538';
+        ctx.lineWidth = 2.5;
+        drawRoundRectPath(ctx, badgeX, badgeTopY, badgeW, badgeH, badgeH / 2);
+        ctx.fill();
+        ctx.stroke();
+
+        if (motionEnabled) {
+          ctx.save();
+          drawRoundRectPath(ctx, badgeX, badgeTopY, badgeW, badgeH, badgeH / 2);
+          ctx.clip();
+          const sweep = ((elapsedSec * 0.55) % 1.8) - 0.4;
+          const sheenX = badgeX + sweep * badgeW;
+          const sheen = ctx.createLinearGradient(sheenX - u * 0.08, 0, sheenX + u * 0.08, 0);
+          sheen.addColorStop(0, 'rgba(253, 243, 157, 0)');
+          sheen.addColorStop(0.5, 'rgba(253, 243, 157, 0.28)');
+          sheen.addColorStop(1, 'rgba(253, 243, 157, 0)');
+          ctx.fillStyle = sheen;
+          ctx.fillRect(badgeX, badgeTopY, badgeW, badgeH);
+          ctx.restore();
+        }
+
+        ctx.fillStyle = '#FDF39D';
+        ctx.textAlign = centered ? 'center' : 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(customBadge.toUpperCase(), centered ? textX : badgeX + Math.round(u * 0.035), badgeTopY + badgeH / 2, badgeW - Math.round(u * 0.07));
       }
 
-      ctx.fillStyle = '#FDF39D';
-      ctx.textAlign = centered ? 'center' : 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(customBadge.toUpperCase(), centered ? textX : badgeX + Math.round(u * 0.035), textTopStart + badgeH / 2, badgeW - Math.round(u * 0.07));
-
       // Headline in Playfair Display Gold-Cream
-      ctx.font = `800 ${titleFontSize}px "Playfair Display", Georgia, serif`;
-      ctx.fillStyle = '#FFF5D6';
-      let ty = titleFirstY;
-      for (const [lineIndex, ln] of titleLines.entries()) {
-        if (motionEnabled) drawStaggeredLine(ctx, ln, textX, ty, textWidth, Math.max(0, elapsedSec - timelinePlan.mainStartSec - lineIndex * 0.25));
-        else ctx.fillText(ln, textX, ty, textWidth);
-        ty += titleLineHeight;
+      if (hasTitle && titleLines.length > 0) {
+        ctx.font = `800 ${titleFontSize}px "Playfair Display", Georgia, serif`;
+        ctx.fillStyle = '#FFF5D6';
+        ctx.textAlign = centered ? 'center' : 'left';
+        ctx.textBaseline = 'middle';
+        let ty = titleFirstY;
+        for (const [lineIndex, ln] of titleLines.entries()) {
+          if (motionEnabled) drawStaggeredLine(ctx, ln, textX, ty, textWidth, Math.max(0, elapsedSec - timelinePlan.mainStartSec - lineIndex * 0.25));
+          else ctx.fillText(ln, textX, ty, textWidth);
+          ty += titleLineHeight;
+        }
       }
 
       // Subtitle
-      ctx.font = `600 ${subtitleFontSize}px "Plus Jakarta Sans", sans-serif`;
-      ctx.fillStyle = '#A0D9CA';
-      ty = subtitleFirstY;
-      for (const sl of subLines) {
-        ctx.fillText(sl, textX, ty, textWidth);
-        ty += subtitleLineHeight;
+      if (hasSubtitle && subLines.length > 0) {
+        ctx.font = `600 ${subtitleFontSize}px "Plus Jakarta Sans", sans-serif`;
+        ctx.fillStyle = '#A0D9CA';
+        ctx.textAlign = centered ? 'center' : 'left';
+        ctx.textBaseline = 'middle';
+        let ty = subtitleFirstY;
+        for (const sl of subLines) {
+          ctx.fillText(sl, textX, ty, textWidth);
+          ty += subtitleLineHeight;
+        }
       }
 
       // Footer CTA Note
-      ctx.font = `700 ${Math.round(u * 0.028)}px "Plus Jakarta Sans", sans-serif`;
-      ctx.fillStyle = '#F5B8CB';
-      ctx.fillText(customFooterNote, textX, footerY, textWidth);
+      if (hasFooter) {
+        ctx.font = `700 ${Math.round(u * 0.028)}px "Plus Jakarta Sans", sans-serif`;
+        ctx.fillStyle = '#F5B8CB';
+        ctx.textAlign = centered ? 'center' : 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(customFooterNote, textX, footerY, textWidth);
+      }
 
-      // Anchor credits near the bottom edge so the center subject remains unobstructed.
-      const drawCredits = () => {
+      // Unified Credits Block (enlarged logos + Smart Grid + side-by-side in 16:9).
+      const drawCredits = (targetCreditsY: number) => {
       if (creditsHeight > 0) {
         ctx.save();
-        drawRoundRectPath(ctx, safePad, creditsY, w - safePad * 2, creditsHeight, Math.round(u * 0.016));
+        drawRoundRectPath(ctx, safePad, targetCreditsY, w - safePad * 2, creditsHeight, Math.round(u * 0.016));
         ctx.fillStyle = 'rgba(26, 2, 29, 0.92)';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(245, 197, 56, 0.4)';
+        ctx.strokeStyle = 'rgba(245, 197, 56, 0.45)';
         ctx.lineWidth = Math.max(1, u * 0.0015);
         ctx.stroke();
         const drawLogo = (src: string, x: number, y: number, width: number, height: number, boxed = false) => {
           const img = ensureImage(src);
           if (!img) return;
-          const padX = boxed ? Math.round(u * 0.018) : 0;
-          const padY = boxed ? Math.round(u * 0.011) : 0;
-          const marginX = boxed ? u * 0.048 : u * 0.03;
-          const marginY = boxed ? u * 0.026 : u * 0.014;
+          const padX = boxed ? Math.round(u * 0.014) : 0;
+          const padY = boxed ? Math.round(u * 0.008) : 0;
+          const marginX = boxed ? u * 0.032 : u * 0.016;
+          const marginY = boxed ? u * 0.016 : u * 0.008;
           const scale = Math.min((width - marginX) / img.naturalWidth, (height - marginY) / img.naturalHeight);
           const lw = img.naturalWidth * scale, lh = img.naturalHeight * scale;
           const lx = x + (width - lw) / 2, ly = y + (height - lh) / 2;
@@ -697,38 +766,56 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
         };
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `700 ${Math.round(u * 0.022)}px "Plus Jakarta Sans", sans-serif`;
-        ctx.fillStyle = '#FFF5D6';
+        ctx.font = `700 ${Math.round(u * 0.023)}px "Plus Jakarta Sans", sans-serif`;
+        ctx.fillStyle = '#FDF39D';
+        const boxW = w - safePad * 2;
+        const sponsorAreaX = safePad;
+        const sponsorAreaW = sideBySideCredits ? boxW * 0.68 : boxW;
+
         if (activeSponsors.length) {
-          ctx.fillText('DIDUKUNG OLEH', w / 2, creditsY + u * 0.016);
+          ctx.fillText('DIDUKUNG OLEH', sponsorAreaX + sponsorAreaW / 2, targetCreditsY + u * 0.022);
           const main = activeSponsors.slice(0, 3);
-          const mainWidth = (w - safePad * 2) / Math.max(1, main.length);
-          main.forEach((sp, i) => drawLogo(sp.dark_logo_url || sp.logo_url, safePad + i * mainWidth, creditsY + u * 0.032, mainWidth, u * 0.088, sp.boxed && !sp.dark_logo_url));
+          const mainWidth = sponsorAreaW / Math.max(1, main.length);
+          main.forEach((sp, i) => drawLogo(sp.dark_logo_url || sp.logo_url, sponsorAreaX + i * mainWidth, targetCreditsY + sponsorHeaderH, mainWidth, primaryRowH, sp.boxed && !sp.dark_logo_url));
           const supporting = activeSponsors.slice(3);
           if (supporting.length > 0) {
             const rows = Math.ceil(supporting.length / 6);
             const smartCols = Math.min(6, Math.ceil(supporting.length / rows));
-            const cellWidth = (w - safePad * 2) / smartCols;
+            const cellWidth = sponsorAreaW / smartCols;
             supporting.forEach((sp, i) => {
               const rowIdx = Math.floor(i / smartCols);
               const colIdx = i % smartCols;
               const itemsInRow = Math.min(smartCols, supporting.length - rowIdx * smartCols);
-              const rowStartX = (w - itemsInRow * cellWidth) / 2;
-              drawLogo(sp.dark_logo_url || sp.logo_url, rowStartX + colIdx * cellWidth, creditsY + u * 0.13 + rowIdx * u * 0.055, cellWidth, u * 0.046, sp.boxed && !sp.dark_logo_url);
+              const rowStartX = sponsorAreaX + (sponsorAreaW - itemsInRow * cellWidth) / 2;
+              drawLogo(sp.dark_logo_url || sp.logo_url, rowStartX + colIdx * cellWidth, targetCreditsY + sponsorHeaderH + primaryRowH + rowIdx * supportingRowStep, cellWidth, u * 0.072, sp.boxed && !sp.dark_logo_url);
             });
           }
         }
         if (mediaPartner) {
-          const py = creditsY + sponsorHeight;
-          ctx.fillStyle = '#FFF5D6';
-          ctx.fillText('OFFICIAL MEDIA PARTNER', w / 2, py + u * 0.012);
-          drawLogo(mediaPartner, w / 2 - u * 0.16, py + u * 0.025, u * 0.32, u * 0.058);
+          if (sideBySideCredits) {
+            const divX = safePad + sponsorAreaW;
+            ctx.strokeStyle = 'rgba(245, 197, 56, 0.45)';
+            ctx.lineWidth = Math.max(1, u * 0.0015);
+            ctx.beginPath();
+            ctx.moveTo(divX, targetCreditsY + u * 0.02);
+            ctx.lineTo(divX, targetCreditsY + creditsHeight - u * 0.02);
+            ctx.stroke();
+            const partnerW = boxW - sponsorAreaW;
+            ctx.fillStyle = '#FDF39D';
+            ctx.fillText('OFFICIAL MEDIA PARTNER', divX + partnerW / 2, targetCreditsY + u * 0.022);
+            drawLogo(mediaPartner, divX, targetCreditsY + u * 0.04, partnerW, creditsHeight - u * 0.05);
+          } else {
+            const py = targetCreditsY + sponsorHeight;
+            ctx.fillStyle = '#FDF39D';
+            ctx.fillText('OFFICIAL MEDIA PARTNER', w / 2, py + u * 0.02);
+            drawLogo(mediaPartner, w / 2 - u * 0.19, py + u * 0.034, u * 0.38, u * 0.074);
+          }
         }
         ctx.restore();
       }
 
       };
-      drawCredits();
+      drawCredits(mainCreditsY);
 
       // The announcement uses a ceremonial frame; other layouts keep a lighter single edge.
       ctx.save();
@@ -828,8 +915,9 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
           // The same logo travels into the highlight position across the scene boundary.
           const morph = outro ? 0 : motionEnabled ? smoothStep((elapsedSec - timelinePlan.introSec + 0.6) / 0.9) : highlight ? 1 : 0;
           const sceneUnit = Math.min(u, h - creditsHeight - verticalSafe * 2);
-          const logoSize = sceneUnit * (0.36 - morph * 0.19);
-          const logoY = (h - creditsHeight) * (0.20 - morph * 0.01);
+          const logoSize = sceneUnit * (0.31 - morph * 0.14);
+          const minLogoTop = topY + Math.round(u * 0.115);
+          const logoY = Math.max(minLogoTop, (h - creditsHeight) * (0.19 - morph * 0.01));
           const logoEnter = outro ? enter : motionEnabled ? ease(elapsedSec / 1.1) : 1;
           ctx.save();
           ctx.globalAlpha *= logoEnter;
@@ -850,20 +938,27 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
           const fit = fitCanvasLines(ctx, heading, w - safePad * 3, 800, '"Playfair Display", Georgia, serif', u * (highlight ? 0.068 : 0.056));
           ctx.font = `800 ${fit.size}px "Playfair Display", Georgia, serif`;
           ctx.fillStyle = '#FFF5D6';
-          const centerY = (h - creditsHeight) * (highlight ? 0.51 : 0.64);
+          const minCenterY = logoY + logoSize + u * 0.075 + ((fit.lines.length - 1) * fit.size * 1.2) / 2;
+          const centerY = Math.max(minCenterY, (h - creditsHeight) * (highlight ? 0.46 : 0.56));
           fit.lines.forEach((line, index) => {
             const y = centerY + (index - (fit.lines.length - 1) / 2) * fit.size * 1.2;
             if (motionEnabled) drawStaggeredLine(ctx, line, w / 2, y, w - safePad * 3, Math.max(0, localTime - 0.16 - index * 0.12));
             else ctx.fillText(line, w / 2, y, w - safePad * 3);
           });
-          const detail = highlight ? customSubtitle : outro ? customFooterNote : 'SMA Negeri 1 Gedeg • 1982 - 2026';
-          const detailFit = fitCanvasLines(ctx, detail, w - safePad * 3, 600, '"Plus Jakarta Sans", sans-serif', u * 0.034);
-          ctx.font = `600 ${detailFit.size}px "Plus Jakarta Sans", sans-serif`;
-          ctx.fillStyle = '#A0D9CA';
-          const detailY = centerY + fit.lines.length * fit.size * 0.6 + u * 0.05;
-          detailFit.lines.forEach((line, index) => ctx.fillText(line, w / 2, detailY + index * detailFit.size * 1.4, w - safePad * 3));
+          const detail = (highlight ? customSubtitle : outro ? customFooterNote : 'SMA Negeri 1 Gedeg • 1982 - 2026').trim();
+          let detailBottomY = centerY + ((fit.lines.length - 1) * fit.size * 1.2) / 2 + fit.size * 0.65;
+          if (detail.length > 0) {
+            const detailFit = fitCanvasLines(ctx, detail, w - safePad * 3, 600, '"Plus Jakarta Sans", sans-serif', u * 0.034);
+            ctx.font = `600 ${detailFit.size}px "Plus Jakarta Sans", sans-serif`;
+            ctx.fillStyle = '#A0D9CA';
+            const detailY = detailBottomY + u * 0.038;
+            detailFit.lines.forEach((line, index) => ctx.fillText(line, w / 2, detailY + index * detailFit.size * 1.4, w - safePad * 3));
+            detailBottomY = detailY + Math.max(0, detailFit.lines.length - 1) * detailFit.size * 1.4 + detailFit.size * 0.65;
+          }
           ctx.restore();
-          drawCredits();
+          drawIdentityPill(topY);
+          const sceneCreditsY = Math.min(mainCreditsY, Math.round(detailBottomY + u * 0.042));
+          drawCredits(sceneCreditsY);
         }
       }
       if (motionEnabled) {

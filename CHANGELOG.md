@@ -4,6 +4,13 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.10 - 2026-11-25
+
+- Media Studio: Position the sponsor and Official Media Partner block directly below the title/subtitle on Intro, Highlight, and Outro scenes (and empty posters), while anchoring it with a ~7.2% bottom margin on 9:16 photo/video scenes.
+- Media Studio: Add smart empty-text auto-collapse so clearing any text field drops upper lines down cleanly without leaving dead vertical space.
+- Media Studio & OBS Live Stream: Enlarge primary (~1.45x), supporting (~2.5x), and Official Media Partner (~1.5x) logos for mobile and 1080p legibility.
+- Media Studio & OBS Live Stream: Standardize one unified `SMAN 1 Gedeg | 44 | AVERSA` identity lockup (top-center in Media Studio & OBS Standby, top-left in OBS camera presets) and unify OBS sponsors + Official Media Partner into a symmetrical bottom broadcast panel.
+
 ## 0.2.9 - 2026-11-24
 
 - Media Studio & OBS Broadcast Overlay: Implement a balanced Smart Grid for sponsors when there are many active sponsors, prominently prioritizing the top 3 as primary sponsors on Row 1 and distributing remaining supporting sponsors evenly below.
