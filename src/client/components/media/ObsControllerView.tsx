@@ -14,13 +14,13 @@ interface ObsControllerViewProps {
 }
 
 const LAYOUT_PRESETS: Array<{ id: ObsLayoutPreset; label: string; desc: string }> = [
-  { id: 'full_frame', label: 'Frame Video Penuh', desc: 'Identitas acara kiri atas, media partner kanan atas, sponsor di bawah, tengah transparan' },
-  { id: 'lower_third', label: 'Lower-Third Broadcast', desc: 'Bar bawah penuh + logo sekolah, countdown & sponsor' },
-  { id: 'corner_bug', label: 'Corner Bug & Sponsor', desc: 'Badge LIVE pojok kiri atas + sponsor bergantian kanan atas' },
-  { id: 'guest_spotlight', label: 'Guest Star Spotlight', desc: 'Kartu bintang tamu Niken Salindry & Kembange Jagad' },
+  { id: 'full_frame', label: 'Frame Video Penuh', desc: 'Identitas acara di kiri atas, panel Official Media Partner + sponsor di bawah, area tengah transparan' },
+  { id: 'lower_third', label: 'Lower-Third Broadcast', desc: 'Bar bawah penuh dengan judul siaran, logo sekolah, countdown & panel sponsor terpadu' },
+  { id: 'corner_bug', label: 'Corner Bug & Sponsor', desc: 'Badge LIVE pojok kiri atas + panel ringkas Official Media Partner & sponsor di bawah' },
+  { id: 'guest_spotlight', label: 'Guest Star Spotlight', desc: 'Kartu bintang tamu Niken Salindry & Kembange Jagad dengan panel sponsor di bawah' },
   { id: 'rundown_schedule', label: 'Rundown Jadwal', desc: 'Daftar agenda resmi AVERSA 44 di sisi kiri layar' },
-  { id: 'standby_soon', label: 'Standby / Starting Soon', desc: 'Layar tunggu teater lengkap untuk jeda/sebelum siaran' },
-  { id: 'sponsor_wall', label: 'Sponsor Showcase', desc: 'Bar penghargaan seluruh sponsor resmi di bagian bawah' },
+  { id: 'standby_soon', label: 'Standby / Starting Soon', desc: 'Layar tunggu teater lengkap untuk jeda atau sebelum siaran dimulai' },
+  { id: 'sponsor_wall', label: 'Sponsor Showcase', desc: 'Bar penghargaan seluruh sponsor resmi & Official Media Partner di bagian bawah' },
 ];
 
 const TRANSITIONS: Array<{ id: ObsTransitionPreset; label: string }> = [
@@ -39,6 +39,7 @@ export const ObsControllerView: React.FC<ObsControllerViewProps> = ({
   const overlays = mediaData.obsOverlays || [];
 
   const [selectedId, setSelectedId] = useState<number>(overlays[0]?.id || 0);
+  const [activeTab, setActiveTab] = useState<'obs' | 'cloud'>('obs');
   const activeOverlay = overlays.find((o) => o.id === selectedId) || overlays[0] || null;
 
   const [formState, setFormState] = useState<Partial<ObsOverlay> | null>(null);
@@ -116,28 +117,55 @@ export const ObsControllerView: React.FC<ObsControllerViewProps> = ({
   };
 
   return (
-    <div className="space-y-8">
-      <CloudStreamPanel onNotify={onNotify} />
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h2 className="font-theatrical text-2xl sm:text-3xl font-extrabold text-[#FFF5D6]">
-            Live Streaming Kit &amp; OBS Overlay Controller
+            Live Streaming Kit
           </h2>
           <p className="text-xs sm:text-sm text-[#FFF5D6]/80 mt-1">
-            Atur Lower-Third, Countdown, Stinger Bumper, dan Sponsor untuk OBS Studio / vMix / StreamYard secara real-time.
+            Atur tampilan layar OBS secara real-time atau kelola mesin siaran cloud YouTube.
           </p>
         </div>
+        {activeTab === 'obs' && (
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#F5C538] text-[#310603] text-xs font-extrabold shrink-0"
+          >
+            + Tambah Kanal OBS
+          </button>
+        )}
+      </div>
+
+      <div className="inline-flex w-full sm:w-auto rounded-xl bg-[#1A021D] border border-[#F5C538]/30 p-1 gap-1">
         <button
           type="button"
-          onClick={() => setCreateOpen(true)}
-          className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#F5C538] text-[#310603] text-xs font-extrabold shrink-0"
+          onClick={() => setActiveTab('obs')}
+          className={`flex-1 sm:flex-initial min-h-[44px] px-5 rounded-lg text-xs sm:text-sm font-extrabold transition-colors ${
+            activeTab === 'obs'
+              ? 'bg-[#F5C538] text-[#310603]'
+              : 'text-[#FFF5D6]/80 hover:text-[#FFF5D6]'
+          }`}
         >
-          + Tambah Kanal OBS
+          Kontrol Layar OBS
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('cloud')}
+          className={`flex-1 sm:flex-initial min-h-[44px] px-5 rounded-lg text-xs sm:text-sm font-extrabold transition-colors ${
+            activeTab === 'cloud'
+              ? 'bg-[#F5C538] text-[#310603]'
+              : 'text-[#FFF5D6]/80 hover:text-[#FFF5D6]'
+          }`}
+        >
+          Mesin Siaran Cloud
         </button>
       </div>
 
+      {activeTab === 'cloud' && <CloudStreamPanel onNotify={onNotify} />}
 
-      {activeOverlay && (
+      {activeTab === 'obs' && activeOverlay && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left: Kanal, URL & Stinger */}
           <div className="lg:col-span-5 space-y-5">

@@ -4,6 +4,13 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.11 - 2026-11-25
+
+- Media Studio (`/office/media-studio`): Reorganize editor controls into a 3-step segmented workflow (`1. Media`, `2. Desain`, `3. Teks & Opsi`) with Prev/Next navigation, and move primary preview/export actions (`Putar Pratinjau`, `Unduh Poster PNG`, `Ekspor MP4`) directly onto the sticky Preview card.
+- Logo & Sponsor (`/office/logo-media`): Add an Official Media Partner preview card, group sponsors into **Sponsor Utama (3 Teratas)** and **Sponsor Pendukung**, and add one-click up/down reorder buttons.
+- Live Streaming Kit (`/office/live-kit`): Split into `Kontrol Layar OBS` and `Mesin Siaran Cloud` tabs with live status badges (`ON AIR`/`SIAP`, `OBS Terhubung`), one-click copy buttons for RTMP/OBS Key/SRT, and updated layout preset descriptions.
+- Office Sidebar (`OfficePortal`): Simplify `TIM MEDIA & SIARAN` menu labels and descriptions.
+
 ## 0.2.10 - 2026-11-25
 
 - Media Studio: Position the sponsor and Official Media Partner block directly below the title/subtitle on Intro, Highlight, and Outro scenes (and empty posters), while anchoring it with a ~7.2% bottom margin on 9:16 photo/video scenes.

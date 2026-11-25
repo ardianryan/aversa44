@@ -190,6 +190,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
   const [template, setTemplate] = useState<AversaTemplate>('guest_star');
   const [backdrop, setBackdrop] = useState<BackdropTheme>('velvet_stardust');
   const [mediaMode, setMediaMode] = useState<StudioMediaMode>('photo');
+  const [studioStep, setStudioStep] = useState<1 | 2 | 3>(1);
   const [colorFilter, setColorFilter] = useState<ColorFilterPreset>('crisp');
   const [showCurtain, setShowCurtain] = useState(true);
   const [showSwoosh, setShowSwoosh] = useState(true);
@@ -1310,526 +1311,620 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
   };
 
   return (
-    <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-[#F5C538]/35 bg-[#250428] p-4 sm:p-6">
+    <div className="space-y-5">
+      {/* Keep source <video> mounted across all steps so canvas preview & export never lose the decoded frame */}
+      {mediaMode === 'video' && videoClip && (
+        <video
+          ref={videoElRef}
+          src={videoClip.objectUrl}
+          preload="auto"
+          playsInline
+          muted
+          onLoadedMetadata={(event) => {
+            const video = event.currentTarget;
+            if (animationBusyRef.current) return;
+            const target = videoClip.coverTime ?? videoClip.trimStart;
+            try {
+              video.currentTime = target > 0 ? target : Math.min(0.05, Math.max(0, video.duration - 0.05));
+            } catch {}
+          }}
+          onLoadedData={async (event) => {
+            const video = event.currentTarget;
+            if (!animationBusyRef.current) {
+              try {
+                await video.play();
+                await new Promise<void>((resolve) => {
+                  if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(() => resolve());
+                  else setTimeout(resolve, 120);
+                });
+                if (videoElRef.current === video && !animationBusyRef.current) {
+                  video.pause();
+                  video.currentTime = videoClip.coverTime ?? videoClip.trimStart;
+                }
+              } catch {
+                try {
+                  video.currentTime = videoClip.coverTime ?? videoClip.trimStart;
+                } catch {}
+              }
+            }
+            captureVideoPoster(video);
+            setAssetTick((tick) => tick + 1);
+          }}
+          onCanPlay={(event) => {
+            if (animationBusyRef.current) return;
+            captureVideoPoster(event.currentTarget);
+            setAssetTick((tick) => tick + 1);
+          }}
+          onSeeked={(event) => {
+            if (animationBusyRef.current) return;
+            captureVideoPoster(event.currentTarget);
+            setAssetTick((tick) => tick + 1);
+          }}
+          className="fixed bottom-0 right-0 w-[2px] h-[2px] opacity-[0.01] pointer-events-none -z-10"
+        />
+      )}
+
+      <div className="relative overflow-hidden rounded-2xl border border-[#F5C538]/35 bg-[#250428] p-4 sm:p-5">
         <AuroraBackground paused={previewPlaying || exportingVideo} />
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="font-theatrical text-2xl sm:text-3xl font-extrabold text-[#FFF5D6]">
               <SplitText text="AVERSA 44 Media Studio" delayMs={35} />
             </h2>
-            <p className="text-sm sm:text-base text-[#FFF5D6]/90 mt-1.5">
-              Buat konten Post, Story, dan Reels berkarakter panggung AVERSA.
+            <p className="text-sm text-[#FFF5D6]/90 mt-1">
+              Ikuti 3 langkah ringkas di bawah untuk membuat Poster PNG atau Video Reels siap unggah.
             </p>
           </div>
-
-          <div className="flex flex-wrap gap-2.5">
-            <button
-              type="button"
-              disabled={exportingVideo || previewPlaying || !!mediaStatus}
-              onClick={handleDownloadPng}
-              className="min-h-[46px] px-4 py-2.5 rounded-xl bg-[#A0D9CA] text-[#1A021D] text-sm font-extrabold hover:brightness-105 disabled:opacity-50"
-            >
-              Unduh Poster PNG ({RATIO_DIMS[aspectRatio].w}x{RATIO_DIMS[aspectRatio].h})
-            </button>
-            <StarBorder color="#F5C538" speed="5s">
-              <button
-                type="button"
-                disabled={exportingVideo || previewPlaying || !!mediaStatus}
-                onClick={() => void runAnimation(true)}
-                className="min-h-[46px] px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#E09D17] to-[#F5C538] text-[#310603] text-sm font-extrabold hover:brightness-105 disabled:opacity-50"
-              >
-                {exportingVideo ? `Merender Video (${renderProgress}%)...` : `Ekspor Video Reels (${timelinePlan.totalDurationSec}s)`}
-              </button>
-            </StarBorder>
+          <div className="inline-flex items-center gap-2 self-start sm:self-auto rounded-xl border border-[#F5C538]/35 bg-[#18021B]/90 px-3 py-2 text-xs text-[#FDF39D]">
+            <span className="font-bold text-[#A0D9CA]">Durasi Video:</span>
+            <span className="font-mono font-bold">{timelinePlan.totalDurationSec}s</span>
           </div>
         </div>
       </div>
 
-      <AnimatedContent distance={16} duration={0.55}>
-        <p className="rounded-xl border border-[#F5C538]/30 bg-[#26042A] px-4 py-3 text-sm sm:text-base leading-relaxed text-[#FFF5D6]">
-          Urutan video: Logo AVERSA (1,8 dtk) → Highlight acara (2,6 dtk) → Foto/video ({timelinePlan.mainHoldSec} dtk){includeOutro ? ' → Penutup (2,8 dtk)' : ''}. Setiap transisi berdurasi 2,2 detik, di luar durasi isi. Poster PNG tetap satu gambar.
-        </p>
-      </AnimatedContent>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Control Column */}
-        <AnimatedContent distance={22} duration={0.6} delay={0.08} className="order-2 lg:order-1 lg:col-span-7 space-y-5">
-          {/* 1. Format & Template */}
-          <div className="rounded-2xl border border-[#F5C538]/30 bg-[#26042A] p-4 sm:p-5 space-y-4">
-            <h3 className="text-base font-extrabold text-[#FDF39D]">1. Rasio Konten &amp; Bingkai AVERSA</h3>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(Object.keys(RATIO_DIMS) as AspectRatio[]).map((r) => (
+        {/* Left Control Column: 3-Step Tabbed Editor */}
+        <AnimatedContent distance={22} duration={0.6} delay={0.08} className="order-2 lg:order-1 lg:col-span-7 space-y-4">
+          {/* 3-Step Segmented Tab Bar */}
+          <div role="tablist" aria-label="Langkah Editor Media Studio" className="grid grid-cols-3 gap-2 rounded-2xl border border-[#F5C538]/30 bg-[#18021B] p-1.5">
+            {[
+              { step: 1 as const, label: '1. Media', sub: mediaMode === 'video' && videoClip ? 'Video' : photos.length ? `${photos.length} Foto` : 'Opsional' },
+              { step: 2 as const, label: '2. Desain', sub: `${aspectRatio} · Bingkai` },
+              { step: 3 as const, label: '3. Teks & Opsi', sub: 'Judul & Sponsor' },
+            ].map((item) => {
+              const active = studioStep === item.step;
+              return (
                 <button
-                  key={r}
+                  key={item.step}
+                  role="tab"
                   type="button"
-                  onClick={() => {
-                    const { w, h } = RATIO_DIMS[r];
-                    if (w > h) setPhotos((items) => items.map((photo) => {
-                      if (photo.width >= photo.height || photo.framing.zoom !== 1 || photo.framing.panX !== 0 || photo.framing.panY !== 0) return photo;
-                      const { maxPanY } = computeMaxPanFractions(photo.width, photo.height, w, h, 1);
-                      return { ...photo, framing: { ...photo.framing, panY: Math.min(0.22, maxPanY) } };
-                    }));
-                    setAspectRatio(r);
-                  }}
-                  className={`min-h-[48px] px-3 py-2 rounded-xl border text-left transition-colors ${
-                    aspectRatio === r
-                      ? 'bg-[#310603] border-[#F5C538] text-[#FDF39D]'
-                      : 'bg-[#1A021D] border-[#F5C538]/25 text-[#FFF5D6]/85'
+                  aria-selected={active}
+                  onClick={() => setStudioStep(item.step)}
+                  className={`min-h-[52px] rounded-xl px-2.5 py-2 text-left transition-all ${
+                    active
+                      ? 'bg-[#310603] border border-[#F5C538] text-[#FDF39D] shadow-md'
+                      : 'border border-transparent text-[#FFF5D6]/80 hover:bg-[#26042A]'
                   }`}
                 >
-                  <div className="text-xs font-extrabold">{r}</div>
-                  <div className="text-[10px] opacity-80">{RATIO_DIMS[r].label}</div>
+                  <div className="text-xs sm:text-sm font-extrabold leading-tight">{item.label}</div>
+                  <div className="text-[11px] opacity-80 truncate mt-0.5">{item.sub}</div>
                 </button>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {[
-                { id: 'guest_star', label: 'Guest Star Spotlight' },
-                { id: 'countdown', label: 'Countdown & Pengumuman' },
-                { id: 'schedule', label: 'Jadwal Rangkaian Acara' },
-                { id: 'promo_store', label: 'Promo Tiket & Merch' },
-                { id: 'live_recap', label: 'Momen Live / Recap' },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => applyTemplateDefaults(t.id as AversaTemplate)}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl border text-xs font-bold text-left transition-colors ${
-                    template === t.id
-                      ? 'bg-[#F5C538] border-[#F5C538] text-[#310603]'
-                      : 'bg-[#1A021D] border-[#F5C538]/25 text-[#FFF5D6]'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            {template === 'schedule' && mediaData.timeline.length > 0 && (
-              <div>
-                <label htmlFor="ms-tl" className="block text-sm font-bold text-[#F7D160] mb-1">
-                  Ambil Data Agenda Otomatis
-                </label>
-                <select
-                  id="ms-tl"
-                  value={selectedTimelineId}
-                  onChange={(e) => {
-                    const id = Number(e.target.value);
-                    setSelectedTimelineId(id);
-                    const ev = mediaData.timeline.find((x) => x.id === id);
-                    if (ev) {
-                      setCustomBadge(`${ev.date_label} • ${ev.category}`);
-                      setCustomTitle(ev.title);
-                      setCustomSubtitle(`${ev.subtitle} • ${ev.venue}`);
-                    }
-                  }}
-                  className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
-                >
-                  {mediaData.timeline.map((ev) => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.date_label} - {ev.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {template === 'promo_store' && (
-              <div>
-                <label htmlFor="ms-promo" className="block text-sm font-bold text-[#F7D160] mb-1">
-                  Pilih Tiket / Merchandise Resmi
-                </label>
-                <select
-                  id="ms-promo"
-                  value={promoTarget}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setPromoTarget(val);
-                    if (val.startsWith('TKT:')) {
-                      const t = mediaData.ticketTiers.find((x) => x.id === Number(val.slice(4)));
-                      if (t) {
-                        setCustomTitle(t.name);
-                        setCustomSubtitle(`Mulai ${formatRupiah(t.price)} • ${t.description.slice(0, 72)}`);
-                      }
-                    } else if (val.startsWith('MRC:')) {
-                      const m = mediaData.merchProducts.find((x) => x.id === Number(val.slice(4)));
-                      if (m) {
-                        setCustomTitle(m.name);
-                        setCustomSubtitle(`${formatRupiah(m.price)} • ${m.short_spec}`);
-                      }
-                    }
-                  }}
-                  className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
-                >
-                  {mediaData.ticketTiers.map((t) => (
-                    <option key={`TKT:${t.id}`} value={`TKT:${t.id}`}>
-                      [Tiket] {t.name} ({formatRupiah(t.price)})
-                    </option>
-                  ))}
-                  {mediaData.merchProducts.map((m) => (
-                    <option key={`MRC:${m.id}`} value={`MRC:${m.id}`}>
-                      [Merch] {m.name} ({formatRupiah(m.price)})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+              );
+            })}
           </div>
 
-          {/* 2. Photo Collage / Video Upload + Framing */}
-          <div className="rounded-2xl border border-[#F5C538]/30 bg-[#26042A] p-4 sm:p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-extrabold text-[#FDF39D]">2. Foto Kolase / Video Momen (Opsional)</h3>
-              <div className="flex gap-2">
-                <label className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#1A021D] border border-[#A0D9CA]/50 text-xs font-bold text-[#A0D9CA] flex items-center cursor-pointer hover:bg-[#310603]">
-                  + Unggah Foto ({photos.length}/{MAX_STUDIO_PHOTOS})
-                  <input
-                    type="file"
-                    accept={IMAGE_INPUT_ACCEPT}
-                    multiple
-                    onChange={handlePhotoUpload}
-                    className="sr-only"
-                  />
-                </label>
-                <label className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#1A021D] border border-[#F5B8CB]/50 text-xs font-bold text-[#F5B8CB] flex items-center cursor-pointer hover:bg-[#310603]">
-                  + Unggah Video
-                  <input type="file" accept={VIDEO_INPUT_ACCEPT} onChange={handleVideoUpload} className="sr-only" />
-                </label>
+          {/* STEP 1: MEDIA */}
+          {studioStep === 1 && (
+            <div className="rounded-2xl border border-[#F5C538]/30 bg-[#26042A] p-4 sm:p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-base font-extrabold text-[#FDF39D]">1. Pilih Foto atau Video Momen</h3>
+                  <p className="text-xs text-[#FFF5D6]/80 mt-0.5">Mendukung foto HEIC/JPG/PNG iPhone hingga 3 gambar, atau video MP4/MOV.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <label className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#1A021D] border border-[#A0D9CA]/60 text-xs sm:text-sm font-bold text-[#A0D9CA] flex items-center cursor-pointer hover:bg-[#310603]">
+                    + Unggah Foto ({photos.length}/{MAX_STUDIO_PHOTOS})
+                    <input
+                      type="file"
+                      accept={IMAGE_INPUT_ACCEPT}
+                      multiple
+                      onChange={handlePhotoUpload}
+                      className="sr-only"
+                    />
+                  </label>
+                  <label className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#1A021D] border border-[#F5B8CB]/60 text-xs sm:text-sm font-bold text-[#F5B8CB] flex items-center cursor-pointer hover:bg-[#310603]">
+                    + Unggah Video
+                    <input type="file" accept={VIDEO_INPUT_ACCEPT} onChange={handleVideoUpload} className="sr-only" />
+                  </label>
+                </div>
               </div>
-            </div>
 
-            {mediaMode === 'photo' && photos.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap gap-2">
+              {photos.length === 0 && !videoClip && (
+                <div className="rounded-xl border border-dashed border-[#F5C538]/35 bg-[#18021B] p-6 text-center space-y-1">
+                  <p className="text-sm font-bold text-[#FDF39D]">Belum ada foto atau video yang diunggah</p>
+                  <p className="text-xs text-[#FFF5D6]/75">Anda bisa langsung lanjut ke Desain &amp; Teks untuk membuat poster teks resmi, atau unggah media di atas.</p>
+                </div>
+              )}
+
+              {mediaMode === 'photo' && photos.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPosterLayout('collage')}
+                        className={`min-h-[44px] px-3.5 rounded-lg text-xs font-bold ${
+                          posterLayout === 'collage' ? 'bg-[#F5C538] text-[#310603]' : 'bg-[#1A021D] text-[#FFF5D6]'
+                        }`}
+                      >
+                        Kolase Multi-Foto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPosterLayout('single')}
+                        className={`min-h-[44px] px-3.5 rounded-lg text-xs font-bold ${
+                          posterLayout === 'single' ? 'bg-[#F5C538] text-[#310603]' : 'bg-[#1A021D] text-[#FFF5D6]'
+                        }`}
+                      >
+                        Foto Utama Tunggal
+                      </button>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setPosterLayout('collage')}
-                      className={`min-h-[44px] px-3 rounded-lg text-xs font-bold ${
-                        posterLayout === 'collage' ? 'bg-[#F5C538] text-[#310603]' : 'bg-[#1A021D] text-[#FFF5D6]'
-                      }`}
+                      onClick={() => setPhotos([])}
+                      className="min-h-[44px] px-3 rounded-lg border border-[#F5B8CB]/40 text-xs font-bold text-[#F5B8CB]"
                     >
-                      Kolase Multi-Foto
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPosterLayout('single')}
-                      className={`min-h-[44px] px-3 rounded-lg text-xs font-bold ${
-                        posterLayout === 'single' ? 'bg-[#F5C538] text-[#310603]' : 'bg-[#1A021D] text-[#FFF5D6]'
-                      }`}
-                    >
-                      Foto Utama Tunggal
+                      Kosongkan Foto
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setPhotos([])}
-                    className="min-h-[44px] px-3 rounded-lg border border-[#F5B8CB]/40 text-xs font-bold text-[#F5B8CB]"
-                  >
-                    Kosongkan Foto
-                  </button>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {photos.map((ph, idx) => {
-                    const { w, h } = RATIO_DIMS[aspectRatio];
-                    const slots = getCollageSlotRects(photos.length, posterLayout, w, h, 0, 0, Math.min(w, h), w > h);
-                    const slot = slots[idx] || { rw: w, rh: h };
-                    return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {photos.map((ph, idx) => {
+                      const { w, h } = RATIO_DIMS[aspectRatio];
+                      const slots = getCollageSlotRects(photos.length, posterLayout, w, h, 0, 0, Math.min(w, h), w > h);
+                      const slot = slots[idx] || { rw: w, rh: h };
+                      return (
+                        <MediaCropBox
+                          key={ph.id}
+                          src={ph.dataUrl}
+                          srcWidth={ph.width}
+                          srcHeight={ph.height}
+                          frameWidth={slot.rw}
+                          frameHeight={slot.rh}
+                          framing={ph.framing}
+                          label={`Foto #${idx + 1}`}
+                          onRemove={() => setPhotos((prev) => prev.filter((x) => x.id !== ph.id))}
+                          onChange={(next) =>
+                            setPhotos((prev) => prev.map((x) => (x.id === ph.id ? { ...x, framing: next } : x)))
+                          }
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {mediaMode === 'video' && videoClip && (
+                <div className="space-y-3">
+                  {videoClip.posterDataUrl && (
                     <MediaCropBox
-                      key={ph.id}
-                      src={ph.dataUrl}
-                      srcWidth={ph.width}
-                      srcHeight={ph.height}
-                      frameWidth={slot.rw}
-                      frameHeight={slot.rh}
-                      framing={ph.framing}
-                      label={`Foto #${idx + 1}`}
-                      onRemove={() => setPhotos((prev) => prev.filter((x) => x.id !== ph.id))}
-                      onChange={(next) =>
-                        setPhotos((prev) => prev.map((x) => (x.id === ph.id ? { ...x, framing: next } : x)))
+                      src={videoClip.posterDataUrl}
+                      srcWidth={videoClip.width || 1920}
+                      srcHeight={videoClip.height || 1080}
+                      frameWidth={RATIO_DIMS[aspectRatio].w}
+                      frameHeight={RATIO_DIMS[aspectRatio].h}
+                      framing={videoClip.framing || { zoom: 1, panX: 0, panY: 0 }}
+                      label="Video"
+                      onChange={(nextFraming) =>
+                        setVideoClip((prev) => (prev ? { ...prev, framing: nextFraming } : null))
                       }
                     />
-                  ); })}
-                </div>
-              </div>
-            )}
+                  )}
 
-            {mediaMode === 'video' && videoClip && (
-              <div className="space-y-3">
-                <video
-                  ref={videoElRef}
-                  src={videoClip.objectUrl}
-                  preload="auto"
-                  playsInline
-                  muted
-                  onLoadedMetadata={(event) => {
-                    const video = event.currentTarget;
-                    if (animationBusyRef.current) return;
-                    const target = videoClip.coverTime ?? videoClip.trimStart;
-                    try {
-                      video.currentTime = target > 0 ? target : Math.min(0.05, Math.max(0, video.duration - 0.05));
-                    } catch {}
-                  }}
-                  onLoadedData={async (event) => {
-                    const video = event.currentTarget;
-                    if (!animationBusyRef.current) {
-                      try {
-                        await video.play();
-                        await new Promise<void>((resolve) => {
-                          if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(() => resolve());
-                          else setTimeout(resolve, 120);
-                        });
-                        if (videoElRef.current === video && !animationBusyRef.current) {
-                          video.pause();
-                          video.currentTime = videoClip.coverTime ?? videoClip.trimStart;
-                        }
-                      } catch {
-                        try {
-                          video.currentTime = videoClip.coverTime ?? videoClip.trimStart;
-                        } catch {}
-                      }
-                    }
-                    captureVideoPoster(video);
-                    setAssetTick((tick) => tick + 1);
-                  }}
-                  onCanPlay={(event) => {
-                    if (animationBusyRef.current) return;
-                    captureVideoPoster(event.currentTarget);
-                    setAssetTick((tick) => tick + 1);
-                  }}
-                  onSeeked={(event) => {
-                    if (animationBusyRef.current) return;
-                    captureVideoPoster(event.currentTarget);
-                    setAssetTick((tick) => tick + 1);
-                  }}
-                  className="fixed bottom-0 right-0 w-[2px] h-[2px] opacity-[0.01] pointer-events-none -z-10"
-                />
-
-                {videoClip.posterDataUrl && (
-                  <MediaCropBox
-                    src={videoClip.posterDataUrl}
-                    srcWidth={videoClip.width || 1920}
-                    srcHeight={videoClip.height || 1080}
-                    frameWidth={RATIO_DIMS[aspectRatio].w}
-                    frameHeight={RATIO_DIMS[aspectRatio].h}
-                    framing={videoClip.framing || { zoom: 1, panX: 0, panY: 0 }}
-                    label="Video"
-                    onChange={(nextFraming) =>
-                      setVideoClip((prev) => (prev ? { ...prev, framing: nextFraming } : null))
-                    }
-                  />
-                )}
-
-                <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-[#F5C538]/30 bg-[#18021B]">
-                  <div>
-                    <strong className="block text-sm text-[#FDF39D]">Audio Video Asli</strong>
-                    <span className="text-xs text-[#FFF5D6]/80">
-                      {!videoClip.mutedOriginal
-                        ? 'Suara asli video aktif di pratinjau dan ekspor MP4'
-                        : 'Video dibisukan'}
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-[#F5C538]/30 bg-[#18021B]">
+                    <div>
+                      <strong className="block text-sm text-[#FDF39D]">Audio Video Asli</strong>
+                      <span className="text-xs text-[#FFF5D6]/80">
+                        {!videoClip.mutedOriginal
+                          ? 'Suara asli video aktif di pratinjau dan ekspor MP4'
+                          : 'Video dibisukan'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVideoClip((prev) => (prev ? { ...prev, mutedOriginal: !prev.mutedOriginal } : null))}
+                      className={`min-h-[44px] px-4 rounded-xl border text-xs font-bold transition-colors ${
+                        !videoClip.mutedOriginal
+                          ? 'border-[#A0D9CA] bg-[#A0D9CA]/15 text-[#A0D9CA]'
+                          : 'border-[#F5B8CB]/40 bg-[#140117] text-[#F5B8CB]'
+                      }`}
+                    >
+                      {!videoClip.mutedOriginal ? '🔊 Suara Aktif' : '🔇 Bisu'}
+                    </button>
                   </div>
+
+                  <VideoTrimmerControl clip={videoClip} onChange={setVideoClip} />
                   <button
                     type="button"
-                    onClick={() => setVideoClip((prev) => (prev ? { ...prev, mutedOriginal: !prev.mutedOriginal } : null))}
-                    className={`min-h-[44px] px-4 rounded-xl border text-xs font-bold transition-colors ${
-                      !videoClip.mutedOriginal
-                        ? 'border-[#A0D9CA] bg-[#A0D9CA]/15 text-[#A0D9CA]'
-                        : 'border-[#F5B8CB]/40 bg-[#140117] text-[#F5B8CB]'
-                    }`}
+                    onClick={() => {
+                      URL.revokeObjectURL(videoClip.objectUrl);
+                      setVideoClip(null);
+                      setMediaMode('photo');
+                    }}
+                    className="min-h-[44px] px-4 rounded-lg border border-[#F5B8CB]/40 text-xs font-bold text-[#F5B8CB]"
                   >
-                    {!videoClip.mutedOriginal ? '🔊 Suara Aktif' : '🔇 Bisu'}
+                    Hapus Video &amp; Kembali ke Foto/Canva
                   </button>
                 </div>
+              )}
 
-                <VideoTrimmerControl clip={videoClip} onChange={setVideoClip} />
+              <div className="flex justify-end pt-2 border-t border-[#F5C538]/20">
                 <button
                   type="button"
-                  onClick={() => {
-                    URL.revokeObjectURL(videoClip.objectUrl);
-                    setVideoClip(null);
-                    setMediaMode('photo');
-                  }}
-                  className="min-h-[36px] px-3 rounded-lg border border-[#F5B8CB]/40 text-xs font-bold text-[#F5B8CB]"
+                  onClick={() => setStudioStep(2)}
+                  className="min-h-[44px] px-5 rounded-xl bg-[#F5C538] text-[#310603] text-sm font-extrabold"
                 >
-                  Hapus Video &amp; Kembali ke Foto/Canva
+                  Lanjut: Desain &amp; Rasio →
                 </button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* 3. Aesthetic, Text, Sponsors & Audio BGM */}
-          <div className="rounded-2xl border border-[#F5C538]/30 bg-[#26042A] p-4 sm:p-5 space-y-4">
-            <h3 className="text-sm font-extrabold text-[#FDF39D]">3. Teks, Elemen Panggung &amp; Efek Suara</h3>
+          {/* STEP 2: DESAIN & RASIO */}
+          {studioStep === 2 && (
+            <div className="rounded-2xl border border-[#F5C538]/30 bg-[#26042A] p-4 sm:p-5 space-y-4">
+              <h3 className="text-base font-extrabold text-[#FDF39D]">2. Rasio Konten, Bingkai &amp; Nuansa Warna</h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label htmlFor="ms-bg" className="block text-sm font-bold text-[#F7D160] mb-1">
-                  Latar Resmi Brand Kit
-                </label>
-                <select
-                  id="ms-bg"
-                  value={backdrop}
-                  onChange={(e) => setBackdrop(e.target.value as BackdropTheme)}
-                  className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
-                >
-                  {(Object.keys(BACKDROP_PATHS) as BackdropTheme[]).map((k) => (
-                    <option key={k} value={k}>
-                      {BACKDROP_PATHS[k].label}
-                    </option>
+                <div className="text-xs font-bold text-[#A0D9CA] mb-2">Rasio Output</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(Object.keys(RATIO_DIMS) as AspectRatio[]).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => {
+                        const { w, h } = RATIO_DIMS[r];
+                        if (w > h) setPhotos((items) => items.map((photo) => {
+                          if (photo.width >= photo.height || photo.framing.zoom !== 1 || photo.framing.panX !== 0 || photo.framing.panY !== 0) return photo;
+                          const { maxPanY } = computeMaxPanFractions(photo.width, photo.height, w, h, 1);
+                          return { ...photo, framing: { ...photo.framing, panY: Math.min(0.22, maxPanY) } };
+                        }));
+                        setAspectRatio(r);
+                      }}
+                      className={`min-h-[48px] px-3 py-2 rounded-xl border text-left transition-colors ${
+                        aspectRatio === r
+                          ? 'bg-[#310603] border-[#F5C538] text-[#FDF39D]'
+                          : 'bg-[#1A021D] border-[#F5C538]/25 text-[#FFF5D6]/85'
+                      }`}
+                    >
+                      <div className="text-sm font-extrabold">{r}</div>
+                      <div className="text-[11px] opacity-80">{RATIO_DIMS[r].label}</div>
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
               <div>
-                <label htmlFor="ms-flt" className="block text-sm font-bold text-[#F7D160] mb-1">
-                  Filter Warna Foto
-                </label>
-                <select
-                  id="ms-flt"
-                  value={colorFilter}
-                  onChange={(e) => setColorFilter(e.target.value as ColorFilterPreset)}
-                  className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
-                >
-                  {(Object.keys(FILTER_CSS) as ColorFilterPreset[]).map((k) => (
-                    <option key={k} value={k}>
-                      {FILTER_CSS[k].label}
-                    </option>
+                <div className="text-xs font-bold text-[#A0D9CA] mb-2">Template Bingkai Acara</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: 'guest_star', label: 'Guest Star Spotlight' },
+                    { id: 'countdown', label: 'Countdown & Pengumuman' },
+                    { id: 'schedule', label: 'Jadwal Rangkaian Acara' },
+                    { id: 'promo_store', label: 'Promo Tiket & Merch' },
+                    { id: 'live_recap', label: 'Momen Live / Recap' },
+                  ].map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => applyTemplateDefaults(t.id as AversaTemplate)}
+                      className={`min-h-[44px] px-3 py-2 rounded-xl border text-xs sm:text-sm font-bold text-left transition-colors ${
+                        template === t.id
+                          ? 'bg-[#F5C538] border-[#F5C538] text-[#310603]'
+                          : 'bg-[#1A021D] border-[#F5C538]/25 text-[#FFF5D6]'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
-              <div>
-                <label htmlFor="ms-badge" className="block text-sm font-bold text-[#F7D160] mb-1">
-                  Badge Kategori (Cinzel)
-                </label>
-                <input
-                  id="ms-badge"
-                  type="text"
-                  value={customBadge}
-                  onChange={(e) => setCustomBadge(e.target.value)}
-                  className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
-                />
+              {template === 'schedule' && mediaData.timeline.length > 0 && (
+                <div>
+                  <label htmlFor="ms-tl" className="block text-sm font-bold text-[#F7D160] mb-1">
+                    Ambil Data Agenda Otomatis
+                  </label>
+                  <select
+                    id="ms-tl"
+                    value={selectedTimelineId}
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      setSelectedTimelineId(id);
+                      const ev = mediaData.timeline.find((x) => x.id === id);
+                      if (ev) {
+                        setCustomBadge(`${ev.date_label} • ${ev.category}`);
+                        setCustomTitle(ev.title);
+                        setCustomSubtitle(`${ev.subtitle} • ${ev.venue}`);
+                      }
+                    }}
+                    className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+                  >
+                    {mediaData.timeline.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        {ev.date_label} - {ev.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {template === 'promo_store' && (
+                <div>
+                  <label htmlFor="ms-promo" className="block text-sm font-bold text-[#F7D160] mb-1">
+                    Pilih Tiket / Merchandise Resmi
+                  </label>
+                  <select
+                    id="ms-promo"
+                    value={promoTarget}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPromoTarget(val);
+                      if (val.startsWith('TKT:')) {
+                        const t = mediaData.ticketTiers.find((x) => x.id === Number(val.slice(4)));
+                        if (t) {
+                          setCustomTitle(t.name);
+                          setCustomSubtitle(`Mulai ${formatRupiah(t.price)} • ${t.description.slice(0, 72)}`);
+                        }
+                      } else if (val.startsWith('MRC:')) {
+                        const m = mediaData.merchProducts.find((x) => x.id === Number(val.slice(4)));
+                        if (m) {
+                          setCustomTitle(m.name);
+                          setCustomSubtitle(`${formatRupiah(m.price)} • ${m.short_spec}`);
+                        }
+                      }
+                    }}
+                    className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+                  >
+                    {mediaData.ticketTiers.map((t) => (
+                      <option key={`TKT:${t.id}`} value={`TKT:${t.id}`}>
+                        [Tiket] {t.name} ({formatRupiah(t.price)})
+                      </option>
+                    ))}
+                    {mediaData.merchProducts.map((m) => (
+                      <option key={`MRC:${m.id}`} value={`MRC:${m.id}`}>
+                        [Merch] {m.name} ({formatRupiah(m.price)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="ms-bg" className="block text-sm font-bold text-[#F7D160] mb-1">
+                    Latar Resmi Panggung
+                  </label>
+                  <select
+                    id="ms-bg"
+                    value={backdrop}
+                    onChange={(e) => setBackdrop(e.target.value as BackdropTheme)}
+                    className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+                  >
+                    {(Object.keys(BACKDROP_PATHS) as BackdropTheme[]).map((k) => (
+                      <option key={k} value={k}>
+                        {BACKDROP_PATHS[k].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="ms-flt" className="block text-sm font-bold text-[#F7D160] mb-1">
+                    Filter Warna Media
+                  </label>
+                  <select
+                    id="ms-flt"
+                    value={colorFilter}
+                    onChange={(e) => setColorFilter(e.target.value as ColorFilterPreset)}
+                    className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+                  >
+                    {(Object.keys(FILTER_CSS) as ColorFilterPreset[]).map((k) => (
+                      <option key={k} value={k}>
+                        {FILTER_CSS[k].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label htmlFor="ms-title" className="block text-sm font-bold text-[#F7D160] mb-1">
-                  Tajuk Utama Poster
-                </label>
-                <input
-                  id="ms-title"
-                  type="text"
-                  value={customTitle}
-                  onChange={(e) => setCustomTitle(e.target.value)}
-                  className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label htmlFor="ms-sub" className="block text-sm font-bold text-[#F7D160] mb-1">
-                  Subjudul / Lokasi / Harga
-                </label>
-                <input
-                  id="ms-sub"
-                  type="text"
-                  value={customSubtitle}
-                  onChange={(e) => setCustomSubtitle(e.target.value)}
-                  className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label htmlFor="ms-note" className="block text-sm font-bold text-[#F7D160] mb-1">
-                  Catatan Kaki / CTA
-                </label>
-                <input
-                  id="ms-note"
-                  type="text"
-                  value={customFooterNote}
-                  onChange={(e) => setCustomFooterNote(e.target.value)}
-                  className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-xs text-[#FFF5D6]"
-                />
+              <div className="flex justify-between gap-2 pt-2 border-t border-[#F5C538]/20">
+                <button
+                  type="button"
+                  onClick={() => setStudioStep(1)}
+                  className="min-h-[44px] px-4 rounded-xl border border-[#F5C538]/40 text-sm font-bold text-[#FDF39D]"
+                >
+                  ← Kembali
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioStep(3)}
+                  className="min-h-[44px] px-5 rounded-xl bg-[#F5C538] text-[#310603] text-sm font-extrabold"
+                >
+                  Lanjut: Teks &amp; Opsi →
+                </button>
               </div>
             </div>
+          )}
 
-            <div className="flex flex-wrap gap-4 pt-1">
-              <label className="flex items-center gap-2 min-h-[44px] text-xs font-bold text-[#FDF39D]">
-                <input
-                  type="checkbox"
-                  checked={showCurtain}
-                  onChange={(e) => setShowCurtain(e.target.checked)}
-                  className="w-4 h-4 accent-[#F5C538]"
-                />
-                Tirai Beludru Atas
-              </label>
-              <label className="flex items-center gap-2 min-h-[44px] text-xs font-bold text-[#FDF39D]">
-                <input
-                  type="checkbox"
-                  checked={showSwoosh}
-                  onChange={(e) => setShowSwoosh(e.target.checked)}
-                  className="w-4 h-4 accent-[#F5C538]"
-                />
-                Kilau Debu Emas
-              </label>
-              <label className="flex items-center gap-2 min-h-[44px] text-xs font-bold text-[#A0D9CA]">
-                <input
-                  type="checkbox"
-                  checked={includeSponsors}
-                  onChange={(e) => setIncludeSponsors(e.target.checked)}
-                  className="w-4 h-4 accent-[#A0D9CA]"
-                />
-                Sponsor Auto-Stamp
-              </label>
-              <label className="flex items-center gap-2 min-h-[44px] text-xs font-bold text-[#F5B8CB]">
-                <input
-                  type="checkbox"
-                  checked={includeOutro}
-                  onChange={(e) => setIncludeOutro(e.target.checked)}
-                  className="w-4 h-4 accent-[#F5B8CB]"
-                />
-                Outro Endcard (Video Reels)
-              </label>
+          {/* STEP 3: TEKS & OPSI */}
+          {studioStep === 3 && (
+            <div className="rounded-2xl border border-[#F5C538]/30 bg-[#26042A] p-4 sm:p-5 space-y-4">
+              <div>
+                <h3 className="text-base font-extrabold text-[#FDF39D]">3. Teks, Elemen Panggung &amp; Sponsor</h3>
+                <p className="text-xs text-[#FFF5D6]/80 mt-0.5">Kosongkan kolom teks yang tidak dipakai agar baris di atasnya otomatis merapat rapi.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="ms-badge" className="block text-sm font-bold text-[#F7D160] mb-1">
+                    Label Atas (Badge)
+                  </label>
+                  <input
+                    id="ms-badge"
+                    type="text"
+                    value={customBadge}
+                    onChange={(e) => setCustomBadge(e.target.value)}
+                    placeholder="Kosongkan jika tidak perlu"
+                    className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="ms-title" className="block text-sm font-bold text-[#F7D160] mb-1">
+                    Judul Utama
+                  </label>
+                  <input
+                    id="ms-title"
+                    type="text"
+                    value={customTitle}
+                    onChange={(e) => setCustomTitle(e.target.value)}
+                    placeholder="Contoh: Niken Salindry"
+                    className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label htmlFor="ms-sub" className="block text-sm font-bold text-[#F7D160] mb-1">
+                    Subjudul / Keterangan
+                  </label>
+                  <input
+                    id="ms-sub"
+                    type="text"
+                    value={customSubtitle}
+                    onChange={(e) => setCustomSubtitle(e.target.value)}
+                    placeholder="Contoh: Bintang Tamu / Lokasi / Harga"
+                    className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label htmlFor="ms-note" className="block text-sm font-bold text-[#F7D160] mb-1">
+                    Catatan Bawah (CTA)
+                  </label>
+                  <input
+                    id="ms-note"
+                    type="text"
+                    value={customFooterNote}
+                    onChange={(e) => setCustomFooterNote(e.target.value)}
+                    placeholder="Kosongkan jika tidak perlu"
+                    className="w-full min-h-[44px] px-3 rounded-lg bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <label className="flex items-center gap-2.5 min-h-[44px] text-sm font-bold text-[#FDF39D]">
+                  <input
+                    type="checkbox"
+                    checked={showCurtain}
+                    onChange={(e) => setShowCurtain(e.target.checked)}
+                    className="w-5 h-5 accent-[#F5C538]"
+                  />
+                  Tirai Beludru Atas
+                </label>
+                <label className="flex items-center gap-2.5 min-h-[44px] text-sm font-bold text-[#FDF39D]">
+                  <input
+                    type="checkbox"
+                    checked={showSwoosh}
+                    onChange={(e) => setShowSwoosh(e.target.checked)}
+                    className="w-5 h-5 accent-[#F5C538]"
+                  />
+                  Kilau Debu Emas
+                </label>
+                <label className="flex items-center gap-2.5 min-h-[44px] text-sm font-bold text-[#A0D9CA]">
+                  <input
+                    type="checkbox"
+                    checked={includeSponsors}
+                    onChange={(e) => setIncludeSponsors(e.target.checked)}
+                    className="w-5 h-5 accent-[#A0D9CA]"
+                  />
+                  Tampilkan Sponsor &amp; Mitra
+                </label>
+                <label className="flex items-center gap-2.5 min-h-[44px] text-sm font-bold text-[#F5B8CB]">
+                  <input
+                    type="checkbox"
+                    checked={includeOutro}
+                    onChange={(e) => setIncludeOutro(e.target.checked)}
+                    className="w-5 h-5 accent-[#F5B8CB]"
+                  />
+                  Penutup Video (Outro)
+                </label>
+                <label className="flex items-center gap-2.5 min-h-[44px] text-sm font-bold text-[#FFF5D6] sm:col-span-2">
+                  <input type="checkbox" checked={includeSfx} onChange={(e) => setIncludeSfx(e.target.checked)} className="w-5 h-5 accent-[#F5C538]" />
+                  Efek suara transisi (tambahkan musik latar langsung di Instagram/TikTok)
+                </label>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F5C538]/20">
+                <button
+                  type="button"
+                  onClick={() => setStudioStep(2)}
+                  className="min-h-[44px] px-4 rounded-xl border border-[#F5C538]/40 text-sm font-bold text-[#FDF39D]"
+                >
+                  ← Kembali
+                </button>
+                <a href="/office/logo-media" className="inline-flex min-h-[44px] items-center text-sm font-bold text-[#A0D9CA] underline">
+                  Atur Logo Sponsor &amp; Mitra →
+                </a>
+              </div>
             </div>
-
-            <p className="text-sm text-[#FFF5D6]/80">Logo partner dan urutan sponsor dikelola di <a href="/office/logo-media" className="inline-flex min-h-[44px] items-center text-[#FDF39D] underline">Logo &amp; Mitra Media</a>.</p>
-
-            <label className="flex items-center gap-3 min-h-[44px] text-sm font-bold text-[#FFF5D6]">
-              <input type="checkbox" checked={includeSfx} onChange={(e) => setIncludeSfx(e.target.checked)} className="w-5 h-5 accent-[#F5C538]" />
-              Efek suara transisi
-            </label>
-            <p className="text-sm text-[#FFF5D6]/80">Video tanpa musik latar. Tambahkan musik melalui Instagram setelah mengunggah.</p>
-          </div>
+          )}
         </AnimatedContent>
 
-        {/* Right Live Preview Canvas Column */}
+        {/* Right Live Preview Canvas Column with Integrated Export Actions */}
         <AnimatedContent distance={22} duration={0.6} delay={0.14} className="order-1 lg:order-2 lg:col-span-5 lg:sticky lg:top-20 space-y-3">
           <StarBorder color="#F5C538" speed="6s" className="w-full block">
-            <div className="rounded-2xl border border-[#F5C538]/40 bg-[#140117] p-3 sm:p-4 shadow-2xl">
-              <div className="flex items-center justify-between text-sm text-[#F7D160] mb-2.5">
+            <div className="rounded-2xl border border-[#F5C538]/40 bg-[#140117] p-3 sm:p-4 shadow-2xl space-y-3">
+              <div className="flex items-center justify-between text-sm text-[#F7D160]">
                 <ShinyText text={`Pratinjau ${aspectRatio}`} disabled={previewPlaying || exportingVideo || window.matchMedia("(prefers-reduced-motion: reduce)").matches} className="font-bold" />
                 <span className="font-mono text-[#A0D9CA]">
                   {RATIO_DIMS[aspectRatio].w}x{RATIO_DIMS[aspectRatio].h}
                 </span>
               </div>
-              {mediaStatus && <p role="status" className="mb-3 text-sm text-[#FDF39D]">{mediaStatus}</p>}
-              <div className="flex flex-wrap gap-2 mb-3">
-                <button type="button" onClick={() => previewPlaying ? previewStopRef.current?.() : void runAnimation(false)} disabled={exportingVideo || !!mediaStatus} className="min-h-[44px] px-4 rounded-lg border border-[#F5C538]/60 text-sm font-bold text-[#FDF39D] hover:bg-[#310603]">{previewPlaying ? 'Hentikan Pratinjau' : 'Putar Pratinjau Video'}</button>
-                <label className="flex min-h-[44px] items-center gap-2 text-sm text-[#FFF5D6]"><input type="checkbox" checked={showSafeArea} onChange={(e) => setShowSafeArea(e.target.checked)} className="h-5 w-5 accent-[#F5C538]" /> Panduan area aman</label>
-              </div>
+              {mediaStatus && <p role="status" className="text-sm font-bold text-[#FDF39D]">{mediaStatus}</p>}
               <div className="flex justify-center bg-[#0D010F] rounded-xl p-2 border border-[#F5C538]/20">
                 <div className="relative inline-block max-w-full leading-[0]">
                 <canvas
                   ref={canvasRef}
-                  className="block max-w-full max-h-[65dvh] w-auto h-auto rounded-lg shadow-lg"
+                  className="block max-w-full max-h-[60dvh] w-auto h-auto rounded-lg shadow-lg"
                 />
                 {showSafeArea && <div aria-hidden="true" className="pointer-events-none absolute border-2 border-dashed border-[#FDF39D]" style={{ left: '6%', right: '6%', top: aspectRatio === '9:16' ? '12%' : '6%', bottom: aspectRatio === '9:16' ? '12%' : '6%' }} />}
                 </div>
               </div>
-              {photos.length === 0 && !videoClip && !previewPlaying && !exportingVideo && <p className="mt-2.5 text-sm text-[#FFF5D6]/90">Unggah foto atau video untuk mengisi frame.</p>}
-              {showSafeArea && <p className="mt-2 text-sm leading-relaxed text-[#FFF5D6]/90">Letakkan wajah dan teks penting di dalam garis. Panduan ini tidak ikut diekspor; area tampilan dapat berbeda antarplatform.</p>}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <button type="button" onClick={() => previewPlaying ? previewStopRef.current?.() : void runAnimation(false)} disabled={exportingVideo || !!mediaStatus} className="min-h-[44px] px-4 rounded-xl border border-[#F5C538]/60 text-sm font-bold text-[#FDF39D] hover:bg-[#310603] disabled:opacity-50">{previewPlaying ? 'Hentikan Pratinjau' : 'Putar Pratinjau'}</button>
+                <label className="flex min-h-[44px] items-center gap-2 text-xs sm:text-sm text-[#FFF5D6]"><input type="checkbox" checked={showSafeArea} onChange={(e) => setShowSafeArea(e.target.checked)} className="h-5 w-5 accent-[#F5C538]" /> Area aman</label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-[#F5C538]/20">
+                <button
+                  type="button"
+                  disabled={exportingVideo || previewPlaying || !!mediaStatus}
+                  onClick={handleDownloadPng}
+                  className="min-h-[46px] px-4 py-2.5 rounded-xl bg-[#A0D9CA] text-[#1A021D] text-sm font-extrabold hover:brightness-105 disabled:opacity-50"
+                >
+                  Unduh Poster PNG
+                </button>
+                <button
+                  type="button"
+                  disabled={exportingVideo || previewPlaying || !!mediaStatus}
+                  onClick={() => void runAnimation(true)}
+                  className="min-h-[46px] px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#E09D17] to-[#F5C538] text-[#310603] text-sm font-extrabold hover:brightness-105 disabled:opacity-50"
+                >
+                  {exportingVideo ? `Merender (${renderProgress}%)...` : `Ekspor MP4 (${timelinePlan.totalDurationSec}s)`}
+                </button>
+              </div>
+              {showSafeArea && <p className="text-xs leading-relaxed text-[#FFF5D6]/85">Letakkan wajah dan teks penting di dalam garis putus-putus. Garis ini tidak ikut diekspor.</p>}
             </div>
           </StarBorder>
           {resultUrl && <div className="rounded-2xl border border-[#F5C538]/40 bg-[#250428] p-4 space-y-3"><h3 className="text-base font-bold text-[#FDF39D]">Hasil Video MP4</h3><video controls playsInline src={resultUrl} className="w-full max-h-[55dvh] rounded-lg" /><a href={resultUrl} download={`aversa44-${template}-${aspectRatio.replace(':', 'x')}.mp4`} className="inline-flex min-h-[44px] items-center rounded-lg bg-[#F5C538] px-4 text-sm font-bold text-[#310603]">Unduh Video MP4</a></div>}

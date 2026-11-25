@@ -238,8 +238,8 @@ const NAV_GROUPS: NavGroupDef[] = [
     items: [
       {
         id: 'media-studio',
-        label: 'Media Studio (Post/Reels)',
-        shortDesc: 'Buat poster dan video AVERSA dengan pratinjau dan efek suara',
+        label: 'Media Studio',
+        shortDesc: 'Buat poster dan video Reels/TikTok 3 langkah cepat',
         roles: ['ADMIN', 'MEDIA'],
         icon: (
           <svg {...iconProps}>
@@ -252,15 +252,15 @@ const NAV_GROUPS: NavGroupDef[] = [
       },
       {
         id: 'logo-media',
-        label: 'Logo & Mitra Media',
-        shortDesc: 'Kelola Official Media Partner dan urutan logo sponsor untuk seluruh konten',
+        label: 'Logo & Sponsor',
+        shortDesc: 'Atur logo Official Media Partner dan urutan 3 sponsor utama',
         roles: ['ADMIN', 'MEDIA'],
         icon: <svg {...iconProps}><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="2" /><path d="m3 18 6-6 4 4 4-5 4 7" /></svg>,
       },
       {
         id: 'live-kit',
-        label: 'Live Streaming Kit (OBS)',
-        shortDesc: 'Kontrol Lower-Third, Stinger Bumper, URL OBS Transparan & Sponsor Auto-Stamp',
+        label: 'Live Streaming Kit',
+        shortDesc: 'Kontrol layar OBS, stinger bumper, dan mesin siaran cloud',
         roles: ['ADMIN', 'MEDIA'],
         icon: (
           <svg {...iconProps}>

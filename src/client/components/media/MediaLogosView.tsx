@@ -63,69 +63,182 @@ export function MediaLogosView({ mediaData, onRefresh, onNotify }: { mediaData: 
     }
   };
 
-  return <div className="space-y-6"><div><h2 className="font-theatrical text-3xl text-[#FFF5D6]">Logo &amp; Mitra Media</h2><p className="mt-2 text-sm text-[#FFF5D6]/80">Kelola logo untuk poster, video publikasi, dan seluruh frame siaran. Tiga sponsor aktif dengan urutan terkecil tampil paling besar.</p></div><MediaPartnerSettings onNotify={onNotify} />
-      {/* Sponsor Auto-Stamp Manager */}
-      <div className="rounded-2xl border border-[#F5C538]/35 bg-[#26042A] p-5 space-y-4">
+  const sortedSponsors = [...sponsors].sort((a, b) => a.sort_order - b.sort_order);
+  const topSponsors = sortedSponsors.slice(0, 3);
+  const supportingSponsors = sortedSponsors.slice(3);
+
+  const moveSponsor = async (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= sortedSponsors.length) return;
+    const reordered = [...sortedSponsors];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, moved);
+    await Promise.all(
+      reordered.map((item, idx) =>
+        fetch(`/api/admin/media-sponsors/${item.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: item.name,
+            tier: item.tier,
+            logo_url: item.logo_url,
+            boxed: item.boxed,
+            sort_order: idx + 1,
+          }),
+        }),
+      ),
+    );
+    onNotify(`Urutan "${moved.name}" dipindahkan ke posisi #${targetIndex + 1}.`);
+    await onRefresh();
+  };
+
+  const renderSponsorCard = (sp: typeof sortedSponsors[number], idx: number, isTop: boolean) => (
+    <div
+      key={sp.id}
+      className={`rounded-xl bg-[#1A021D] p-3.5 flex flex-col gap-3 border ${
+        isTop ? 'border-[#F5C538]/55 shadow-sm shadow-[#F5C538]/10' : 'border-[#F5C538]/20'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${
+            isTop
+              ? 'bg-[#F5C538] text-[#1A021D]'
+              : 'bg-[#26042A] text-[#FFF5D6]/80 border border-[#F5C538]/25'
+          }`}
+        >
+          #{idx + 1} {isTop ? 'Sponsor Utama' : 'Pendukung'}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={idx === 0}
+            onClick={() => void moveSponsor(idx, -1)}
+            title="Naikkan urutan"
+            className="min-h-[44px] min-w-[44px] rounded-lg border border-[#F5C538]/30 text-sm font-extrabold text-[#FDF39D] disabled:opacity-30"
+          >
+            &uarr;
+          </button>
+          <button
+            type="button"
+            disabled={idx === sortedSponsors.length - 1}
+            onClick={() => void moveSponsor(idx, 1)}
+            title="Turunkan urutan"
+            className="min-h-[44px] min-w-[44px] rounded-lg border border-[#F5C538]/30 text-sm font-extrabold text-[#FDF39D] disabled:opacity-30"
+          >
+            &darr;
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 min-w-0">
+        <img
+          src={sp.logo_url}
+          alt={sp.name}
+          className={`h-12 w-16 object-contain shrink-0 ${sp.boxed ? 'rounded-lg bg-[#FFF5D6] p-1.5' : ''}`}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-extrabold text-[#FFF5D6] truncate">{sp.name}</div>
+          <div className="text-[11px] text-[#A0D9CA]">{sp.tier} - Urutan #{idx + 1}</div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 pt-1 border-t border-[#F5C538]/15">
+        <button
+          type="button"
+          className="flex-1 min-h-[44px] rounded-lg border border-[#F5C538]/35 px-3 text-xs font-bold text-[#FDF39D]"
+          onClick={() => {
+            setEditingId(sp.id);
+            setSpForm({ name: sp.name, tier: sp.tier, logo_url: sp.logo_url, boxed: sp.boxed, sort_order: sp.sort_order });
+            setSponsorSheetOpen(true);
+          }}
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            setConfirmAction({
+              title: 'Hapus Logo Sponsor?',
+              message: `Sponsor "${sp.name}" akan dihapus dari daftar Media Studio dan OBS.`,
+              onConfirm: async () => {
+                await fetch(`/api/admin/media-sponsors/${sp.id}`, { method: 'DELETE' });
+                onNotify(`Sponsor "${sp.name}" dihapus.`);
+                await onRefresh();
+              },
+            })
+          }
+          className="flex-1 min-h-[44px] px-3 rounded-lg border border-[#F5B8CB]/40 text-xs font-bold text-[#F5B8CB]"
+        >
+          Hapus
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-theatrical text-3xl text-[#FFF5D6]">Logo &amp; Mitra Media</h2>
+        <p className="mt-2 text-sm text-[#FFF5D6]/80">
+          Atur logo Official Media Partner dan urutan sponsor untuk seluruh poster, video Reels, dan layar siaran OBS.
+        </p>
+      </div>
+
+      <MediaPartnerSettings onNotify={onNotify} />
+
+      <div className="rounded-2xl border border-[#F5C538]/35 bg-[#26042A] p-5 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h3 className="text-lg font-extrabold text-[#FDF39D]">
-              Logo Sponsor
-            </h3>
+            <h3 className="text-lg font-extrabold text-[#FDF39D]">Daftar Logo Sponsor</h3>
             <p className="text-xs text-[#FFF5D6]/80">
-              Logo sponsor aktif otomatis menempel pada hasil ekspor poster/reels dan overlay siaran langsung OBS.
+              Gunakan tombol panah atas/bawah untuk mengatur urutan. 3 sponsor teratas otomatis tampil paling besar.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => { setEditingId(null); setSpForm({ name: '', tier: 'GOLD', logo_url: '', boxed: false, sort_order: sponsors.length + 1 }); setSponsorSheetOpen(true); }}
+            onClick={() => {
+              setEditingId(null);
+              setSpForm({ name: '', tier: 'GOLD', logo_url: '', boxed: false, sort_order: sponsors.length + 1 });
+              setSponsorSheetOpen(true);
+            }}
             className="min-h-[44px] px-4 py-2 rounded-xl bg-[#A0D9CA] text-[#1A021D] text-xs font-extrabold shrink-0"
           >
             + Tambah Logo Sponsor
           </button>
         </div>
 
-        {sponsors.length === 0 ? (
+        {sortedSponsors.length === 0 ? (
           <div className="rounded-xl bg-[#1A021D] border border-[#F5C538]/20 p-6 text-center text-xs text-[#FFF5D6]/75">
             Belum ada logo sponsor yang ditambahkan. Klik &ldquo;+ Tambah Logo Sponsor&rdquo; untuk memulai.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {sponsors.map((sp) => (
-              <div
-                key={sp.id}
-                className="rounded-xl bg-[#1A021D] border border-[#F5C538]/25 p-3.5 flex items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <img
-                    src={sp.logo_url}
-                    alt={sp.name}
-                    className={`h-10 w-14 object-contain shrink-0 ${sp.boxed ? 'rounded bg-[#FFF5D6] p-1' : ''}`}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-extrabold text-[#FFF5D6] truncate">{sp.name}</div>
-                    <div className="text-[11px] text-[#A0D9CA]">{sp.tier} · Urutan {sp.sort_order}</div>
-                  </div>
-                </div>
-                <button type="button" className="min-h-[44px] px-3 text-sm text-[#FDF39D]" onClick={() => { setEditingId(sp.id); setSpForm({ name: sp.name, tier: sp.tier, logo_url: sp.logo_url, boxed: sp.boxed, sort_order: sp.sort_order }); setSponsorSheetOpen(true); }}>Edit</button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setConfirmAction({
-                      title: 'Hapus Logo Sponsor?',
-                      message: `Sponsor "${sp.name}" akan dihapus dari daftar Media Studio dan OBS.`,
-                      onConfirm: async () => {
-                        await fetch(`/api/admin/media-sponsors/${sp.id}`, { method: 'DELETE' });
-                        onNotify(`Sponsor "${sp.name}" dihapus.`);
-                        await onRefresh();
-                      },
-                    })
-                  }
-                  className="min-h-[44px] px-3 rounded-lg border border-[#F5B8CB]/40 text-xs font-bold text-[#F5B8CB]"
-                >
-                  Hapus
-                </button>
+          <div className="space-y-5">
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-[#F5C538]">
+                  Sponsor Utama (3 Teratas)
+                </span>
+                <span className="text-[11px] text-[#FFF5D6]/65">Ukuran paling besar di poster &amp; OBS</span>
               </div>
-            ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {topSponsors.map((sp, idx) => renderSponsorCard(sp, idx, true))}
+              </div>
+            </div>
+
+            {supportingSponsors.length > 0 && (
+              <div className="space-y-2.5 pt-2 border-t border-[#F5C538]/15">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-[#A0D9CA]">
+                    Sponsor Pendukung ({supportingSponsors.length})
+                  </span>
+                  <span className="text-[11px] text-[#FFF5D6]/65">Tampil rapi di baris pendukung</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {supportingSponsors.map((sp, idx) => renderSponsorCard(sp, idx + 3, false))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -231,5 +344,6 @@ export function MediaLogosView({ mediaData, onRefresh, onNotify }: { mediaData: 
         title={confirmAction?.title || 'Konfirmasi'}
         message={confirmAction?.message || ''}
       />
-  </div>;
+    </div>
+  );
 }
