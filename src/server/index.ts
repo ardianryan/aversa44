@@ -264,7 +264,7 @@ app.get('/api/catalog', async (c) => {
       guestStarAccessNote: cfg.guestStarAccessNote || 'E-Ticket QR Terenkripsi',
       bankPaymentInfo:
         cfg.bankPaymentInfo ||
-        'Transfer ke Rekening Bendahara Panitia Dies Natalis 44 SMAN 1 Gedeg (Bank Jatim 0123-44-2026 a.n. Panitia AVERSA 44) atau kanal Xendit.',
+        'Transfer ke Rekening Resmi SinemaTIK (Official Merch & Media Partner AVERSA 44).',
       sponsorshipHeadline: cfg.sponsorshipHeadline || 'Bermitra Bersama Perayaan 44 Tahun SMAN 1 Gedeg',
       sponsorshipDescription: cfg.sponsorshipDescription || '',
       guestStars: [cfg.guestStar1Name || 'Niken Salindry', cfg.guestStar2Name || 'Kembange Jagad'],
@@ -291,6 +291,7 @@ app.get('/api/catalog', async (c) => {
     },
     timeline: timelineRes.rows,
     qrisEnabled: qrisEnabled || (typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload)),
+    xenditEnabled: Boolean(process.env.XENDIT_CALLBACK_TOKEN?.trim() && !/local_test_only/i.test(process.env.XENDIT_CALLBACK_TOKEN)),
     fallbackQrisReady: typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload),
     fallbackQrisActive: Boolean(cfg.fallbackQrisForce && typeof cfg.fallbackQrisStaticPayload === 'string' && isValidEmvQris(cfg.fallbackQrisStaticPayload)),
     ticketTiers: tiersRes.rows,
@@ -572,7 +573,7 @@ app.post('/api/orders', async (c) => {
         orderType,
         effectiveFulfillmentMode,
         zoneId,
-        input.shippingAddress || 'Ambil di Booth OSIS SMAN 1 Gedeg',
+        input.shippingAddress || 'Ambil di Booth SinemaTIK SMAN 1 Gedeg',
         input.shippingNotes || null,
         pickupQrToken,
         subtotalAmount,
@@ -823,7 +824,7 @@ app.post('/api/webhooks/whatsapp', async (c) => {
             if (custPhone) {
               notifyCustomer = {
                 phone: custPhone,
-                message: `Pembayaran pesanan ${targetOrderCode} sebesar Rp ${Number(ord.total_amount).toLocaleString('id-ID')} telah DITERIMA oleh panitia AVERSA 44. Buka Dompet Tiket Anda di ${PUBLIC_SITE_URL}/dompet-tiket untuk mengunduh e-ticket QR.`,
+                message: `Pembayaran pesanan ${targetOrderCode} sebesar Rp ${Number(ord.total_amount).toLocaleString('id-ID')} telah DITERIMA oleh Tim SinemaTIK AVERSA 44. Buka Dompet Tiket Anda di ${PUBLIC_SITE_URL}/dompet-tiket untuk mengunduh e-ticket QR.`,
               };
             }
           }
@@ -1630,6 +1631,41 @@ app.post('/api/admin/orders/:orderCode/update-shipping', async (c) => {
     return c.json({ success: false, error: 'Order tidak ditemukan.' }, 404);
   }
   return c.json({ success: true, order: res.rows[0] });
+});
+
+app.delete('/api/admin/orders/:orderCode', async (c) => {
+  const auth = requireRoles(c, ['ADMIN']);
+  if (auth instanceof Response) return auth;
+
+  const orderCode = c.req.param('orderCode').trim().toUpperCase();
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query('BEGIN');
+    const ordRes = await dbClient.query('SELECT id FROM orders WHERE order_code = $1 FOR UPDATE', [orderCode]);
+    const ord = ordRes.rows[0];
+    if (!ord) {
+      await dbClient.query('ROLLBACK');
+      return c.json({ success: false, error: 'Pesanan tidak ditemukan.' }, 404);
+    }
+
+    const itemsRes = await dbClient.query('SELECT item_type, ticket_tier_id, merch_product_id, quantity FROM order_items WHERE order_id = $1', [ord.id]);
+    for (const it of itemsRes.rows) {
+      if (it.item_type === 'TICKET' && it.ticket_tier_id) {
+        await dbClient.query('UPDATE ticket_tiers SET quota_sold = GREATEST(0, quota_sold - $1) WHERE id = $2', [it.quantity, it.ticket_tier_id]);
+      } else if (it.item_type === 'MERCH' && it.merch_product_id) {
+        await dbClient.query('UPDATE merch_products SET stock_total = stock_total + $1 WHERE id = $2', [it.quantity, it.merch_product_id]);
+      }
+    }
+
+    await dbClient.query('DELETE FROM orders WHERE id = $1', [ord.id]);
+    await dbClient.query('COMMIT');
+    return c.json({ success: true, deleted: orderCode });
+  } catch (err: any) {
+    await dbClient.query('ROLLBACK');
+    return c.json({ success: false, error: err?.message || 'Gagal menghapus riwayat pesanan.' }, 500);
+  } finally {
+    dbClient.release();
+  }
 });
 
 // --- TICKET TIERS CRUD ---

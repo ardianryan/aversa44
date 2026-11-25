@@ -76,6 +76,7 @@ export interface ShippingZone {
 export interface CatalogResponse {
   success: boolean;
   qrisEnabled: boolean;
+  xenditEnabled?: boolean;
   eventMeta: {
     school: string;
     location: string;

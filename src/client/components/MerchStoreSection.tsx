@@ -74,7 +74,7 @@ export const MerchStoreSection: React.FC<MerchStoreSectionProps> = ({
             Tidak Ada Penjualan Merchandise Untuk Saat Ini
           </p>
           <p className="text-sm text-[#FFF5D6]/80 max-w-lg mx-auto">
-            Katalog merchandise resmi AVERSA 44 sedang tidak tersedia atau belum dibuka oleh panitia. Pantau jadwal
+            Katalog merchandise resmi AVERSA 44 sedang tidak tersedia atau belum dibuka oleh SinemaTIK. Pantau jadwal
             rilis berikutnya di halaman utama.
           </p>
           {onBackHome && (

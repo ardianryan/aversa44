@@ -184,6 +184,26 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'PAID'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [resiMap, setResiMap] = useState<Record<string, string>>({});
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteOrderHistory = async (orderCode: string) => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderCode}`, { method: 'DELETE' });
+      const d = await res.json();
+      if (d.success) {
+        onNotify(`Riwayat pesanan ${orderCode} berhasil dihapus.`);
+        setDeleteTarget(null);
+        await onRefresh();
+        onCatalogRefresh();
+      } else {
+        onNotify(d.error || 'Gagal menghapus riwayat pesanan.', true);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const filteredOrders = (adminData.orders || []).filter((ord: any) => {
     if (filterStatus !== 'ALL' && ord.payment_status !== filterStatus) return false;
@@ -233,7 +253,7 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
             Pesanan Tiket, Kasir POS &amp; Resi Pengiriman
           </h2>
           <p className="text-xs sm:text-sm text-[#FFF5D6]/80">
-            Validasi pembayaran tunai di booth OSIS, cek mutasi transfer, dan perbarui nomor resi kurir.
+            Validasi pembayaran tunai di booth SinemaTIK, cek mutasi transfer, perbarui resi, atau hapus riwayat uji coba.
           </p>
         </div>
 
@@ -364,11 +384,29 @@ export const OfficeOrdersView: React.FC<CmsCommonProps> = ({
                     </button>
                   </div>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(ord.order_code)}
+                  className="min-h-[44px] px-4 py-2 rounded-xl border border-[#F5B8CB]/45 text-[#F5B8CB] text-xs font-bold hover:bg-[#7D1B05]/40"
+                >
+                  Hapus Riwayat
+                </button>
               </div>
             </div>
           ))}
         </div>
       )}
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title="Hapus Riwayat Transaksi?"
+        message={`Pesanan ${deleteTarget || ''} beserta data tiket/itemnya akan dihapus permanen dan nominal pendapatan akan diperbarui.`}
+        confirmLabel="Ya, Hapus Permanen"
+        busy={deleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (deleteTarget) await deleteOrderHistory(deleteTarget);
+        }}
+      />
     </div>
   );
 };
@@ -1765,7 +1803,7 @@ export const OfficeHeroSettingsCmsView: React.FC<CmsCommonProps> = ({
         <h3 className="text-base font-extrabold text-[#FDF39D]">3. Rekening Transfer, Kontak Sponsor &amp; Footer</h3>
         <div>
           <label htmlFor="bank-info" className="block text-sm font-bold text-[#F7D160] mb-1">
-            Informasi Rekening Transfer Manual (Ditampilkan saat Checkout)
+            Informasi Rekening Transfer Merch &amp; Tiket - SinemaTIK (Ditampilkan saat Checkout)
           </label>
           <input
             id="bank-info"

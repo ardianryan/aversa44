@@ -10,6 +10,7 @@ interface CheckoutModalProps {
   cart: CartItem[];
   shippingZones: ShippingZone[];
   qrisEnabled: boolean;
+  xenditEnabled?: boolean;
   bankPaymentInfo?: string;
   onUpdateQty: (key: string, delta: number) => void;
   onClearCart: () => void;
@@ -23,6 +24,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   cart,
   shippingZones,
   qrisEnabled,
+  xenditEnabled = false,
   bankPaymentInfo,
   onUpdateQty,
   onClearCart,
@@ -265,7 +267,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     ? 'Pindai QRIS Dinamis Berikut & Unggah Bukti Pembayaran'
                     : 'Pindai QRIS Dinamis QBiz Berikut (Berlaku 5 Menit)'
                   : createdResult.order.payment_method === 'CASH_BOOTH'
-                  ? 'Silakan Bayar Tunai di Booth Kasir OSIS SMAN 1 Gedeg'
+                  ? 'Silakan Bayar Tunai di Booth SinemaTIK SMAN 1 Gedeg'
                   : 'Menunggu Verifikasi Transfer Bank / Gateway'}
               </div>
             </div>
@@ -374,9 +376,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     Kode Booking Kasir: <span className="font-mono text-lg">{createdResult.order.order_code}</span>
                   </p>
                   <p className="text-[#FFF5D6]/85">
-                    Tunjukkan kode di atas kepada petugas Kasir OSIS di Booth SMAN 1 Gedeg dan bayar sebesar{' '}
-                    <strong>{formatRupiah(createdResult.order.total_amount)}</strong>. Tiket akan aktif seketika setelah
-                    dikonfirmasi kasir.
+                    Tunjukkan kode di atas kepada Tim SinemaTIK di Booth SMAN 1 Gedeg dan bayar sebesar{' '}
+                    <strong>{formatRupiah(createdResult.order.total_amount)}</strong>. Tiket/merchandise akan aktif seketika setelah
+                    dikonfirmasi.
                   </p>
                 </div>
               )}
@@ -393,8 +395,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   </div>
                   <p className="text-xs text-[#FFF5D6]/85">
                     {bankPaymentInfo ||
-                      'Transfer ke Rekening Bendahara Panitia Dies Natalis 44 SMAN 1 Gedeg (Bank Jatim 0123-44-2026 a.n. Panitia AVERSA 44)'}{' '}
-                    atau kanal Xendit, lalu kirim keterangan bukti transfer di bawah ini.
+                      'Transfer ke Rekening Resmi SinemaTIK (Official Merch & Media Partner AVERSA 44)'}
+                    , lalu kirim keterangan bukti transfer di bawah ini.
                   </p>
                   <div>
                     <label htmlFor="proof-note" className="block text-sm font-bold text-[#F7D160] mb-1">
@@ -612,8 +614,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   {[
-                    { id: 'PICKUP_BOOTH', title: 'Ambil di Tempat', sub: 'Booth SMAN 1 Gedeg (Gratis)' },
-                    { id: 'LOCAL_COURIER', title: 'Antar Lokal Panitia', sub: 'Kurir Mojokerto / Gedeg' },
+                    { id: 'PICKUP_BOOTH', title: 'Ambil di Tempat', sub: 'Booth SinemaTIK SMAN 1 Gedeg (Gratis)' },
+                    { id: 'LOCAL_COURIER', title: 'Antar Lokal SinemaTIK', sub: 'Kurir Mojokerto / Gedeg' },
                     { id: 'REGULER_EXPEDITION', title: 'Ekspedisi Luar Kota', sub: 'JNE / J&T Reguler' },
                   ].map((opt) => (
                     <button
@@ -692,9 +694,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {[
                   ...(qrisEnabled ? [{ id: 'QBIZ_QRIS', title: 'Bayar dengan QRIS', sub: 'Pindai QRIS untuk membayar' }] : []),
-                  { id: 'CASH_BOOTH', title: 'Bayar Tunai di Booth OSIS', sub: 'Verifikasi langsung oleh Kasir Panitia' },
-                  { id: 'XENDIT', title: 'Xendit Gateway (VA / E-Wallet)', sub: 'Pembayaran via Virtual Account' },
-                  { id: 'MANUAL_TRANSFER', title: 'Transfer Rekening Panitia', sub: 'Unggah catatan bukti transfer' },
+                  { id: 'CASH_BOOTH', title: 'Bayar Tunai di Booth SinemaTIK', sub: 'Verifikasi langsung oleh Tim SinemaTIK' },
+                  ...(xenditEnabled ? [{ id: 'XENDIT', title: 'Xendit Gateway (VA / E-Wallet)', sub: 'Pembayaran via Virtual Account' }] : []),
+                  { id: 'MANUAL_TRANSFER', title: 'Transfer Rekening SinemaTIK', sub: 'Unggah catatan bukti transfer' },
                 ].map((pm) => (
                   <button
                     key={pm.id}
@@ -736,7 +738,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <span>{formatRupiah(subtotal + estimatedShipping)}</span>
               </div>
               <p className="text-[11px] text-[#A0D9CA]">
-                Untuk metode QBiz Dynamic QRIS, sistem akan menambahkan 3 digit kode unik otomatis pada layar tagihan berikutnya.
+                Untuk metode QRIS, sistem akan menambahkan 3 digit kode unik otomatis pada layar tagihan berikutnya.
               </p>
             </div>
 

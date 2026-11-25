@@ -269,6 +269,21 @@ export async function initDatabase() {
     ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_proof_url TEXT;
     ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check;
     ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check CHECK (payment_status IN ('PENDING', 'PAID', 'EXPIRED', 'REFUNDED', 'REJECTED'));
+    UPDATE shipping_zones SET
+      zone_name = 'Ambil di Tempat (Booth SinemaTIK SMAN 1 Gedeg)',
+      description = 'Ambil langsung di Booth SinemaTIK SMAN 1 Gedeg (Jl. Raya Pendidikan No. 55, Gedeg) dengan menunjukkan QR Pengambilan.'
+    WHERE code = 'PICKUP_SMANSAGE' AND (zone_name ILIKE '%panitia%' OR description ILIKE '%osis%');
+    UPDATE shipping_zones SET
+      zone_name = 'Antar Lokal Kurir SinemaTIK: Gedeg, Jetis, Kemlagi',
+      description = 'Diantar langsung oleh kurir SinemaTIK ke alamat pembeli area Kecamatan Gedeg, Jetis, dan Kemlagi.'
+    WHERE code = 'COURIER_ZONA_1' AND (zone_name ILIKE '%panitia%' OR description ILIKE '%osis%');
+    UPDATE shipping_zones SET
+      zone_name = 'Antar Lokal Kurir SinemaTIK: Kota Mojokerto & Sekitar',
+      description = 'Pengiriman area Kota Mojokerto, Sooko, Puri, Mojoanyar, dan Dawarblandong oleh tim logistik SinemaTIK.'
+    WHERE code = 'COURIER_ZONA_2' AND (zone_name ILIKE '%panitia%' OR description ILIKE '%panitia%');
+    UPDATE site_settings
+    SET value_json = jsonb_set(value_json, '{bankPaymentInfo}', '"Transfer ke Rekening Resmi SinemaTIK (Official Merch & Media Partner AVERSA 44)."'::jsonb)
+    WHERE key = 'public_config' AND value_json->>'bankPaymentInfo' ILIKE '%Panitia AVERSA 44%';
   `);
 
   await seedInitialData();
@@ -372,9 +387,9 @@ async function seedInitialData() {
   if (zoneCount.rows[0].cnt === 0) {
     await pool.query(`
       INSERT INTO shipping_zones (code, mode, zone_name, description, base_cost, cost_per_kg, estimated_days, sort_order) VALUES
-      ('PICKUP_SMANSAGE', 'PICKUP_BOOTH', 'Ambil di Tempat (Booth Panitia SMAN 1 Gedeg)', 'Ambil langsung di Booth Sekretariat OSIS / Gate Merch SMAN 1 Gedeg (Jl. Raya Pendidikan No. 55, Gedeg) dengan menunjukkan QR Pengambilan.', 0, 0, 'Siap diambil saat jam operasional sekolah atau Hari-H', 1),
-      ('COURIER_ZONA_1', 'LOCAL_COURIER', 'Antar Lokal Kurir Panitia: Gedeg, Jetis, Kemlagi', 'Diantar langsung oleh kurir panitia OSIS ke rumah/alamat pembeli area Kecamatan Gedeg, Jetis, dan Kemlagi.', 8000, 0, '1 - 2 hari kerja', 2),
-      ('COURIER_ZONA_2', 'LOCAL_COURIER', 'Antar Lokal Kurir Panitia: Kota Mojokerto & Sekitar', 'Pengiriman area Kota Mojokerto, Sooko, Puri, Mojoanyar, dan Dawarblandong oleh tim logistik panitia.', 12000, 0, '1 - 2 hari kerja', 3),
+      ('PICKUP_SMANSAGE', 'PICKUP_BOOTH', 'Ambil di Tempat (Booth SinemaTIK SMAN 1 Gedeg)', 'Ambil langsung di Booth SinemaTIK SMAN 1 Gedeg (Jl. Raya Pendidikan No. 55, Gedeg) dengan menunjukkan QR Pengambilan.', 0, 0, 'Siap diambil saat jam operasional sekolah atau Hari-H', 1),
+      ('COURIER_ZONA_1', 'LOCAL_COURIER', 'Antar Lokal Kurir SinemaTIK: Gedeg, Jetis, Kemlagi', 'Diantar langsung oleh kurir SinemaTIK ke alamat pembeli area Kecamatan Gedeg, Jetis, dan Kemlagi.', 8000, 0, '1 - 2 hari kerja', 2),
+      ('COURIER_ZONA_2', 'LOCAL_COURIER', 'Antar Lokal Kurir SinemaTIK: Kota Mojokerto & Sekitar', 'Pengiriman area Kota Mojokerto, Sooko, Puri, Mojoanyar, dan Dawarblandong oleh tim logistik SinemaTIK.', 12000, 0, '1 - 2 hari kerja', 3),
       ('EXP_JATIM', 'REGULER_EXPEDITION', 'Ekspedisi Reguler (JNE / J&T): Jawa Timur', 'Pengiriman luar area Mojokerto ke seluruh kabupaten/kota di Provinsi Jawa Timur lengkap dengan nomor resi.', 14000, 14000, '2 - 4 hari kerja', 4),
       ('EXP_NASIONAL', 'REGULER_EXPEDITION', 'Ekspedisi Reguler (JNE / J&T): Luar Jawa Timur', 'Pengiriman ke seluruh Indonesia bagi alumni yang berada di luar Jawa Timur.', 26000, 26000, '3 - 6 hari kerja', 5)
     `);

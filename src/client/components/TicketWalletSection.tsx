@@ -452,7 +452,7 @@ export const TicketWalletSection: React.FC<TicketWalletSectionProps> = ({
                       Status Pengambilan / Pengiriman Merchandise
                     </h3>
                     <p className="text-xs text-[#FFF5D6]/85 mt-0.5">
-                      Mode: {order.fulfillment_mode === 'PICKUP_BOOTH' ? 'Ambil di Tempat (Booth SMAN 1 Gedeg)' : order.fulfillment_mode === 'LOCAL_COURIER' ? 'Kurir Lokal Panitia Mojokerto' : 'Ekspedisi Reguler'}
+                      Mode: {order.fulfillment_mode === 'PICKUP_BOOTH' ? 'Ambil di Tempat (Booth SinemaTIK SMAN 1 Gedeg)' : order.fulfillment_mode === 'LOCAL_COURIER' ? 'Kurir Lokal SinemaTIK Mojokerto' : 'Ekspedisi Reguler'}
                       {shippingZone ? ` • ${shippingZone.zone_name}` : ''}
                     </p>
                   </div>
@@ -491,7 +491,7 @@ export const TicketWalletSection: React.FC<TicketWalletSectionProps> = ({
                     />
                     <div className="space-y-1 text-center sm:text-left">
                       <div className="text-sm font-extrabold text-[#A0D9CA]">
-                        QR Serah Terima Merch di Booth OSIS SMAN 1 Gedeg
+                        QR Serah Terima Merch di Booth SinemaTIK SMAN 1 Gedeg
                       </div>
                       <div className="text-xs text-[#FFF5D6]/85">
                         {order.pickup_verified_at

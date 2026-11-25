@@ -626,6 +626,7 @@ export function App() {
         cart={cart}
         shippingZones={catalog?.shippingZones || []}
         qrisEnabled={catalog?.qrisEnabled ?? false}
+        xenditEnabled={catalog?.xenditEnabled ?? false}
         bankPaymentInfo={catalog?.eventMeta.bankPaymentInfo}
         onUpdateQty={updateCartQty}
         onClearCart={() => setCart([])}
