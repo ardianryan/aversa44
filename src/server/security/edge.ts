@@ -40,12 +40,34 @@ export function resolveClientIp(peer: string, forwarded: string, trusted: string
   return normalizeIp(forwarded);
 }
 
+export function resolveChallengeHostname(origin: string | undefined, hostHeader: string | undefined, publicSiteUrl: string, isDev: boolean): string {
+  const fallback = new URL(publicSiteUrl).hostname;
+  if (origin && isAllowedOrigin(origin, publicSiteUrl, isDev)) {
+    try {
+      return new URL(origin).hostname.replace(/^\[|\]$/g, '');
+    } catch {
+      return fallback;
+    }
+  }
+  if (hostHeader) {
+    const host = hostHeader.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').trim().toLowerCase();
+    if (host === 'localhost' || isPrivateOrTailscaleIp(normalizeIp(host))) {
+      return host;
+    }
+  }
+  return fallback;
+}
+
 export async function verifyTurnstile(token: unknown, action: string, hostname: string, remoteIp: string, secret: string, fetcher: typeof fetch = fetch): Promise<boolean> {
   if (typeof token !== 'string' || !token || token.length > 2048 || !secret) return false;
   try {
+    const params = new URLSearchParams({ secret, response: token });
+    if (remoteIp && !isPrivateOrTailscaleIp(normalizeIp(remoteIp))) {
+      params.set('remoteip', remoteIp);
+    }
     const response = await fetcher('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ secret, response: token, remoteip: remoteIp }),
+      body: params,
       signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) return false;

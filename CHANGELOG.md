@@ -4,6 +4,10 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.15 - 2026-11-25
+
+- Turnstile LAN & Tailscale Verification: Match Cloudflare Turnstile expected hostname against the validated request `Origin`/`Host` (`10.*`, `172.16-31.*`, `192.168.*`, `100.64-127.*`, `localhost`, or `PUBLIC_SITE_URL`) and omit private `remoteip` from `siteverify` so `/office` login and checkout work cleanly over local/Tailscale IPs.
+
 ## 0.2.14 - 2026-11-25
 
 - Server CORS & Network Access: Allow direct access and browser writes from private LAN (`10.*`, `172.16-31.*`, `192.168.*`) and Tailscale (`100.64-127.*`) IPs/origins, and scope `secure` cookie flag to HTTPS requests so local/Tailscale HTTP sessions work seamlessly when internet/CDN is degraded.

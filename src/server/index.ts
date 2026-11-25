@@ -1,6 +1,6 @@
 import { sealCloudSecret } from './security/cloud-secrets.ts';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { isAllowedOrigin, isPrivateOrTailscaleIp, normalizeIp, resolveClientIp, verifyTurnstile } from './security/edge.ts';
+import { isAllowedOrigin, isPrivateOrTailscaleIp, normalizeIp, resolveChallengeHostname, resolveClientIp, verifyTurnstile } from './security/edge.ts';
 import { sendWalletReply } from './wallet-replies.ts';
 import { normalizePhone, otpDigest, signWalletAccess, verifyWalletAccess } from './wallet-auth.ts';
 import 'dotenv/config';
@@ -75,7 +75,8 @@ async function checkChallenge(c: any, token: unknown, action: string): Promise<R
   if (!old || old.until <= now) buckets.set(key, { count: 1, until: now + 60000 });
   else if (++old.count > 20) return c.json({ success: false, error: 'Terlalu banyak percobaan. Coba lagi sebentar.' }, 429);
   if (buckets.size > 10000) for (const [k, v] of buckets) { if (v.until <= now) buckets.delete(k); }
-  const ok = await verifyTurnstile(token, action, new URL(PUBLIC_SITE_URL).hostname, ip, process.env.TURNSTILE_SECRET_KEY || '');
+  const expectedHost = resolveChallengeHostname(c.req.header('Origin'), c.req.header('Host'), PUBLIC_SITE_URL, process.env.NODE_ENV !== 'production');
+  const ok = await verifyTurnstile(token, action, expectedHost, ip, process.env.TURNSTILE_SECRET_KEY || '');
   return ok ? null : c.json({ success: false, error: 'Verifikasi keamanan belum berhasil. Silakan coba lagi.' }, 403);
 }
 

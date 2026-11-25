@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { isAllowedOrigin, isPrivateOrTailscaleIp, normalizeIp, resolveClientIp, verifyTurnstile } from '../src/server/security/edge.ts';
+import { isAllowedOrigin, isPrivateOrTailscaleIp, normalizeIp, resolveChallengeHostname, resolveClientIp, verifyTurnstile } from '../src/server/security/edge.ts';
 
 assert.equal(isPrivateOrTailscaleIp('10.1.0.9'), true);
 assert.equal(isPrivateOrTailscaleIp('172.18.0.5'), true);
@@ -9,6 +9,9 @@ assert.equal(isAllowedOrigin('http://100.79.150.79:4400', 'https://aversa.sman1g
 assert.equal(isAllowedOrigin('http://172.18.0.5:4400', 'https://aversa.sman1gedeg.sch.id', false), true);
 assert.equal(isAllowedOrigin('http://10.1.0.9:4400', 'https://aversa.sman1gedeg.sch.id', false), true);
 assert.equal(isAllowedOrigin('https://evil.example', 'https://aversa.sman1gedeg.sch.id', false), false);
+assert.equal(resolveChallengeHostname('http://10.1.0.9:4400', '10.1.0.9:4400', 'https://aversa.sman1gedeg.sch.id', false), '10.1.0.9');
+assert.equal(resolveChallengeHostname(undefined, '100.79.150.79:4400', 'https://aversa.sman1gedeg.sch.id', false), '100.79.150.79');
+assert.equal(resolveChallengeHostname('https://evil.example', 'evil.example', 'https://aversa.sman1gedeg.sch.id', false), 'aversa.sman1gedeg.sch.id');
 
 assert.equal(normalizeIp('::ffff:45.198.149.181'), '45.198.149.181');
 assert.equal(normalizeIp('1.2.3.4, 8.8.8.8'), null);
