@@ -1,6 +1,14 @@
 import crypto from 'node:crypto';
 
-const secret = () => process.env.SESSION_SECRET || 'local_test_only_session_secret_not_for_production';
+const secret = () => {
+  const val = process.env.SESSION_SECRET?.trim() || '';
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_INSECURE_LOCAL_DEV !== '1') {
+    if (!val || /local_test_only_/i.test(val)) {
+      throw new Error('SESSION_SECRET must be set to a strong production secret.');
+    }
+  }
+  return val || 'local_test_only_session_secret_not_for_production';
+};
 
 export function normalizePhone(input: string): string | null {
   let digits = input.replace(/[^0-9]/g, '');

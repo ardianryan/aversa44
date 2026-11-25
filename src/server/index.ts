@@ -13,7 +13,9 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { streamSSE } from 'hono/streaming';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
+import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
+import { renderBrandedErrorHtml, resolveErrorCode } from './error-page.ts';
 import { z } from 'zod';
 import QRCode from 'qrcode';
 import { initDatabase, pool } from './db.ts';
@@ -47,24 +49,42 @@ const buckets = new Map<string, { count: number; until: number }>();
 const isHttpsRequest = (c: any): boolean =>
   c.req.header('X-Forwarded-Proto') === 'https' || c.req.url.startsWith('https://');
 
+const compressMiddleware = compress();
+app.use('*', async (c, next) => {
+  if (c.req.path === '/api/obs/stream') return next();
+  return compressMiddleware(c, next);
+});
+
 app.use('*', async (c, next) => {
   const peer = normalizeIp(getConnInfo(c).remote.address || '');
   const isHealth = c.req.path === '/api/health' && (peer === '127.0.0.1' || peer === '::1');
   const isAllowedDirectPeer = isPrivateOrTailscaleIp(peer);
   if (process.env.NODE_ENV === 'production' && !localBypass && !isHealth && !isAllowedDirectPeer && (!peer || !trustedProxies.includes(peer))) {
+    if (!c.req.path.startsWith('/api/') && (c.req.header('Accept') || '').includes('text/html')) {
+      return c.html(renderBrandedErrorHtml(403), 403);
+    }
     return c.json({ success: false, error: 'Akses tidak diizinkan.' }, 403);
   }
   const ip = resolveClientIp(peer || '', c.req.header('X-Real-IP') || '', trustedProxies);
-  if (!ip && !isHealth) return c.json({ success: false, error: 'Alamat pengunjung tidak tersedia.' }, 400);
+  if (!ip && !isHealth) {
+    if (!c.req.path.startsWith('/api/') && (c.req.header('Accept') || '').includes('text/html')) {
+      return c.html(renderBrandedErrorHtml(400), 400);
+    }
+    return c.json({ success: false, error: 'Alamat pengunjung tidak tersedia.' }, 400);
+  }
   c.set('clientIp' as never, (ip || peer || '') as never);
   await next();
 });
 
-app.get('/api/security/turnstile', (c) => c.json({ enabled: turnstileEnabled, siteKey: turnstileEnabled ? process.env.TURNSTILE_SITE_KEY || '' : '' }));
+app.get('/api/security/turnstile', (c) => {
+  const clientIp = (c.get('clientIp' as never) as string) || '';
+  const effectiveEnabled = turnstileEnabled && !isPrivateOrTailscaleIp(clientIp);
+  return c.json({ enabled: effectiveEnabled, siteKey: effectiveEnabled ? process.env.TURNSTILE_SITE_KEY || '' : '' });
+});
 
 async function checkChallenge(c: any, token: unknown, action: string): Promise<Response | null> {
-  if (!turnstileEnabled) return null;
-  const ip = c.get('clientIp') as string;
+  const ip = (c.get('clientIp') as string) || '';
+  if (!turnstileEnabled || isPrivateOrTailscaleIp(ip)) return null;
   const now = Date.now();
   const key = `${action}:${ip}`;
   const old = buckets.get(key);
@@ -625,7 +645,7 @@ app.post('/api/orders', async (c) => {
     const qrisDataUrl = qbizQrisPayload ? await toQrDataUrl(qbizQrisPayload) : null;
 
     setCookie(c, 'aversa44_order_access', signWalletAccess('order', createdOrder.order_code), {
-      httpOnly: true, sameSite: 'Lax', path: '/', maxAge: 3600, secure: process.env.NODE_ENV === 'production',
+      httpOnly: true, sameSite: 'Lax', path: '/', maxAge: 3600, secure: isHttpsRequest(c),
     });
     return c.json({
       success: true,
@@ -796,7 +816,7 @@ app.post('/api/wallet/verify-code', async (c) => {
     [phone, otpDigest(phone, body.data.challenge)]);
   if (!result.rowCount) return c.json({ success: false, error: 'Pesan belum diterima atau tautan sudah kedaluwarsa.' }, 400);
   setCookie(c, 'aversa44_wallet_access', signWalletAccess('phone', phone), {
-    httpOnly: true, sameSite: 'Lax', path: '/', maxAge: 3600, secure: process.env.NODE_ENV === 'production',
+    httpOnly: true, sameSite: 'Lax', path: '/', maxAge: 3600, secure: isHttpsRequest(c),
   });
   return c.json({ success: true });
 });
@@ -984,22 +1004,55 @@ app.post('/api/webhooks/xendit', async (c) => {
 // 4. STAFF AUTHENTICATION & RBAC
 // ---------------------------------------------------------------------------
 
+const loginFailureBuckets = new Map<string, { count: number; until: number }>();
+
+function checkLoginThrottle(ip: string, username: string): boolean {
+  const now = Date.now();
+  const userKey = `u:${ip}:${username.toLowerCase()}`;
+  const ipKey = `ip:${ip}`;
+  const userEntry = loginFailureBuckets.get(userKey);
+  const ipEntry = loginFailureBuckets.get(ipKey);
+  if ((userEntry && userEntry.until > now && userEntry.count >= 10) || (ipEntry && ipEntry.until > now && ipEntry.count >= 25)) {
+    return true;
+  }
+  return false;
+}
+
+function recordLoginFailure(ip: string, username: string) {
+  const now = Date.now();
+  if (loginFailureBuckets.size >= 10000) {
+    for (const [k, v] of loginFailureBuckets) if (v.until <= now) loginFailureBuckets.delete(k);
+  }
+  for (const key of [`u:${ip}:${username.toLowerCase()}`, `ip:${ip}`]) {
+    const cur = loginFailureBuckets.get(key);
+    if (!cur || cur.until <= now) loginFailureBuckets.set(key, { count: 1, until: now + 300000 });
+    else cur.count += 1;
+  }
+}
+
 app.post('/api/auth/login', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const challengeError = await checkChallenge(c, body.turnstileToken, 'office_login');
   if (challengeError) return challengeError;
   const username = String(body.username || '').trim();
   const password = String(body.password || '');
+  const clientIp = (c.get('clientIp' as never) as string) || 'unknown';
 
   if (!username || !password) {
     return c.json({ success: false, error: 'Username dan password wajib diisi.' }, 400);
   }
 
+  if (checkLoginThrottle(clientIp, username)) {
+    return c.json({ success: false, error: 'Terlalu banyak percobaan login gagal. Coba lagi dalam 5 menit.' }, 429);
+  }
+
   const res = await pool.query('SELECT * FROM staff_users WHERE username = $1 AND is_active = TRUE', [username]);
   const user = res.rows[0];
   if (!user || !verifyPassword(password, user.password_hash)) {
+    recordLoginFailure(clientIp, username);
     return c.json({ success: false, error: 'Username atau password salah.' }, 401);
   }
+  loginFailureBuckets.delete(`u:${clientIp}:${username.toLowerCase()}`);
 
   const token = signSessionToken({
     userId: user.id,
@@ -1040,7 +1093,7 @@ app.post('/api/auth/change-password', async (c) => {
   const changed = await pool.query('UPDATE staff_users SET password_hash = $1, session_version = session_version + 1 WHERE id = $2 AND password_hash = $3 AND is_active = TRUE RETURNING session_version', [hashPassword(parsed.data.newPassword), session.userId, hash]);
   if (!changed.rowCount) return c.json({ success: false, error: 'Kata sandi telah berubah. Silakan coba lagi.' }, 409);
   const token = signSessionToken({ userId: session.userId, username: session.username, fullName: session.fullName, role: session.role, sessionVersion: changed.rows[0].session_version });
-  setCookie(c, 'aversa44_staff_session', token, { httpOnly: true, sameSite: 'Lax', path: '/', maxAge: 43200, secure: process.env.NODE_ENV === 'production' });
+  setCookie(c, 'aversa44_staff_session', token, { httpOnly: true, sameSite: 'Lax', path: '/', maxAge: 43200, secure: isHttpsRequest(c) });
   return c.json({ success: true });
 });
 
@@ -1976,11 +2029,19 @@ app.get('/api/obs/stream', async (c) => {
     return c.json({ success: false, error: 'Token OBS tidak valid.' }, 403);
   }
 
+  if ((obsSubscribers.get(slug)?.size || 0) >= 50) {
+    return c.json({ success: false, error: 'Terlalu banyak koneksi pemantau OBS aktif.' }, 429);
+  }
+
   c.header('Cache-Control', 'no-cache, no-transform');
   c.header('X-Accel-Buffering', 'no');
   return streamSSE(c, async (stream) => {
     let closed = false;
     let pending = Promise.resolve();
+    let resolveDone: (() => void) | null = null;
+    const donePromise = new Promise<void>((resolve) => {
+      resolveDone = resolve;
+    });
     const cleanup = () => {
       if (closed) return;
       closed = true;
@@ -1988,6 +2049,7 @@ app.get('/api/obs/stream', async (c) => {
       const subscribers = obsSubscribers.get(slug);
       subscribers?.delete(listener);
       if (subscribers?.size === 0) obsSubscribers.delete(slug);
+      resolveDone?.();
     };
     const send = (event: string, payload: unknown) => {
       pending = pending.then(async () => {
@@ -2001,7 +2063,7 @@ app.get('/api/obs/stream', async (c) => {
     stream.onAbort(cleanup);
     try {
       send('connected', { slug, ts: Date.now() });
-      while (!closed && !stream.aborted) await stream.sleep(1000);
+      await donePromise;
     } finally {
       cleanup();
     }
@@ -2354,6 +2416,7 @@ app.delete('/api/admin/media-sponsors/:id', async (c) => {
   return c.json({ success: true, deleted: true });
 });
 
+app.use('/api/admin/media/upload', bodyLimit({ maxSize: 9 * 1024 * 1024, onError: (c) => c.json({ success: false, error: 'Ukuran file maksimal 8 MB.' }, 413) }));
 app.post('/api/admin/media/upload', async (c) => {
   const auth = requireRoles(c, ['ADMIN', 'MEDIA']);
   if (auth instanceof Response) return auth;
@@ -2410,17 +2473,58 @@ app.get('/sitemap.xml', (c) => {
 });
 
 // Serve uploaded media assets dynamically in both dev and production
+app.use('/uploads/*', async (c, next) => {
+  await next();
+  if (c.res.status === 200) c.header('Cache-Control', 'public, max-age=86400');
+});
 app.use('/uploads/*', serveStatic({ root: './public' }));
+
+// Branded HTTP Error Pages (400, 403, 404, 500, 502, 503, 505)
+app.get('/error/:code', (c) => {
+  const code = resolveErrorCode(c.req.param('code'));
+  return c.html(renderBrandedErrorHtml(code), code);
+});
+app.use('/errors/*', serveStatic({ root: './public' }));
+
+app.onError((err, c) => {
+  console.error('[AVERSA 44] Unhandled error:', err);
+  if (c.req.path.startsWith('/api/')) {
+    return c.json({ success: false, error: 'Terjadi gangguan server sementara.' }, 500);
+  }
+  return c.html(renderBrandedErrorHtml(500), 500);
+});
+
+const SPA_ROUTES = new Set(['/', '/tiket', '/tickets', '/merch', '/dompet-tiket', '/wallet', '/obs', '/office']);
+const isKnownSpaPath = (pathname: string): boolean => {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  return SPA_ROUTES.has(clean) || clean.startsWith('/office/');
+};
 
 // Serve static files cleanly in both dev & production
 const distClientDir = path.resolve(process.cwd(), 'dist/client');
-const publicDir = path.resolve(process.cwd(), 'public');
 
 if (fs.existsSync(distClientDir)) {
+  app.use('/assets/*', async (c, next) => {
+    await next();
+    if (c.res.status === 200) c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  });
+  app.use('/*', async (c, next) => {
+    await next();
+    if (c.res.status === 200 && !c.req.path.startsWith('/api/') && !c.req.path.startsWith('/assets/') && !c.res.headers.get('Cache-Control')) {
+      c.header('Cache-Control', 'public, max-age=86400');
+    }
+  });
   app.use('/*', serveStatic({ root: './dist/client' }));
   app.get('*', (c) => {
+    if (c.req.path.startsWith('/api/')) {
+      return c.json({ success: false, error: 'Endpoint tidak ditemukan.' }, 404);
+    }
+    if (!isKnownSpaPath(c.req.path)) {
+      return c.html(renderBrandedErrorHtml(404), 404);
+    }
     const htmlPath = path.join(distClientDir, 'index.html');
     const html = fs.readFileSync(htmlPath, 'utf8');
+    c.header('Cache-Control', 'no-cache');
     return c.html(html);
   });
 } else {
@@ -2433,6 +2537,13 @@ if (fs.existsSync(distClientDir)) {
   app.use('/favicon.ico', serveStatic({ path: './public/favicon.ico' }));
   app.use('/apple-touch-icon.png', serveStatic({ path: './public/apple-touch-icon.png' }));
 }
+
+app.notFound((c) => {
+  if (c.req.path.startsWith('/api/')) {
+    return c.json({ success: false, error: 'Endpoint tidak ditemukan.' }, 404);
+  }
+  return c.html(renderBrandedErrorHtml(404), 404);
+});
 
 function validateProductionConfiguration() {
   if (process.env.NODE_ENV !== 'production') return;

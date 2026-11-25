@@ -520,6 +520,26 @@ async function run() {
     headers: { Cookie: mediaCookie },
   });
 
+  // 8. Branded Error Pages (403, 404, 500, 502, 503, 505) & Brute-Force Throttle
+  for (const errCode of [403, 404, 500, 502, 503, 505]) {
+    const errRes = await fetch(`${BASE}/error/${errCode}`);
+    const errHtml = await errRes.text();
+    assert(errRes.status === errCode && errHtml.includes(`AVERSA 44`) && errHtml.includes(String(errCode)), `Branded error page /error/${errCode} returns HTTP ${errCode}`);
+  }
+  const unknownPageRes = await fetch(`${BASE}/halaman-tidak-ada-404`);
+  assert(unknownPageRes.status === 404, 'Unknown browser route returns HTTP 404 branded error page');
+
+  let throttledStatus = 0;
+  for (let i = 0; i < 11; i++) {
+    const failRes = await fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'e2e_bruteforce_probe', password: 'wrong' }),
+    });
+    throttledStatus = failRes.status;
+  }
+  assert(throttledStatus === 429, 'Login brute-force protection throttles repeated failures with HTTP 429');
+
   console.log('--- ALL E2E TESTS PASSED ---');
 }
 

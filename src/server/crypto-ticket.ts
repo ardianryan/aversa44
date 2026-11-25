@@ -1,7 +1,17 @@
 import crypto from 'node:crypto';
 
-const TICKET_HMAC_SECRET = process.env.TICKET_HMAC_SECRET || 'local_test_only_ticket_hmac_secret_not_for_production';
-const SESSION_SECRET = process.env.SESSION_SECRET || 'local_test_only_session_secret_not_for_production';
+function resolveCryptoSecret(envName: 'TICKET_HMAC_SECRET' | 'SESSION_SECRET', devFallback: string): string {
+  const val = process.env[envName]?.trim() || '';
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_INSECURE_LOCAL_DEV !== '1') {
+    if (!val || /local_test_only_/i.test(val)) {
+      throw new Error(`${envName} must be set to a strong production secret.`);
+    }
+  }
+  return val || devFallback;
+}
+
+const TICKET_HMAC_SECRET = resolveCryptoSecret('TICKET_HMAC_SECRET', 'local_test_only_ticket_hmac_secret_not_for_production');
+const SESSION_SECRET = resolveCryptoSecret('SESSION_SECRET', 'local_test_only_session_secret_not_for_production');
 
 export type QrPayloadType = 'TKT' | 'MRC';
 

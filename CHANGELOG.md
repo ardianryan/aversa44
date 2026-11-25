@@ -4,6 +4,18 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-25
+
+- Security & Network Resilience:
+  - Allow verified private LAN (`10.*`, `172.16-31.*`, `192.168.*`, `127.0.0.1`) and Tailscale (`100.64-127.*`) peers/origins, bypass Turnstile automatically for verified private/Tailscale client IPs while keeping Turnstile mandatory for public internet traffic, and scope cookie `secure` flag to HTTPS requests (`isHttpsRequest`).
+  - Add per-IP/username failed-login brute-force throttling (`HTTP 429`), `bodyLimit` (9 MB) on `/api/admin/media/upload`, defense-in-depth secret checks in `crypto-ticket.ts` and `wallet-auth.ts`, and cap SSE subscribers on `/api/obs/stream`.
+- Performance & Lightweight Delivery:
+  - Enable `hono/compress` (excluding `/api/obs/stream` SSE), add `Cache-Control: public, max-age=31536000, immutable` on hashed `/assets/*` and `max-age=86400` on static assets, and remove the 1-second polling loop on `/api/obs/stream`.
+- Branded Error Pages:
+  - Add Royal Plum & Gold HTML error pages for `400`, `403`, `404`, `500`, `502`, `503`, `505` (`/error/:code`, `/errors/:code.html`, `app.onError`, strict SPA route whitelist returning `404` on unknown routes, and `deploy/nginx-aversa.conf.example` integration).
+- CI/CD:
+  - Trigger `.github/workflows/release.yml` on `push` to `main` for `:latest` GHCR builds without requiring a new git tag on every hotfix, and consolidate today's Media UI, OBS Broadcast, and Security/Perf updates into `v0.3.0`.
+
 ## 0.2.15 - 2026-11-25
 
 - Turnstile LAN & Tailscale Verification: Match Cloudflare Turnstile expected hostname against the validated request `Origin`/`Host` (`10.*`, `172.16-31.*`, `192.168.*`, `100.64-127.*`, `localhost`, or `PUBLIC_SITE_URL`) and omit private `remoteip` from `siteverify` so `/office` login and checkout work cleanly over local/Tailscale IPs.
