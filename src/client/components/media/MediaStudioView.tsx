@@ -186,7 +186,7 @@ export const MediaStudioView: React.FC<MediaStudioViewProps> = ({ mediaData, onN
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('4:5');
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
   const [template, setTemplate] = useState<AversaTemplate>('guest_star');
   const [backdrop, setBackdrop] = useState<BackdropTheme>('velvet_stardust');
   const [mediaMode, setMediaMode] = useState<StudioMediaMode>('photo');

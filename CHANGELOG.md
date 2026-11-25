@@ -4,6 +4,10 @@ Notable changes are recorded here. Version numbers follow Semantic Versioning.
 
 ## Unreleased
 
+## 0.2.12 - 2026-11-25
+
+- Media Studio (`/office/media-studio`): Set default aspect ratio to `9:16` (Portrait for Reels / TikTok / Story).
+
 ## 0.2.11 - 2026-11-25
 
 - Media Studio (`/office/media-studio`): Reorganize editor controls into a 3-step segmented workflow (`1. Media`, `2. Desain`, `3. Teks & Opsi`) with Prev/Next navigation, and move primary preview/export actions (`Putar Pratinjau`, `Unduh Poster PNG`, `Ekspor MP4`) directly onto the sticky Preview card.
