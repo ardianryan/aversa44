@@ -416,7 +416,16 @@ app.post('/api/orders', async (c) => {
   const challengeError = await checkChallenge(c, (body as any)?.turnstileToken, 'checkout');
   if (challengeError) return challengeError;
   const input = parsed.data;
-  if (input.paymentMethod === 'QBIZ_QRIS' && !qrisEnabled) return c.json({ success: false, error: 'Pembayaran QRIS belum tersedia. Silakan pilih metode lain.' }, 503);
+  if (input.paymentMethod === 'QBIZ_QRIS' && !qrisEnabled) {
+    const cfgCheck = await pool.query('SELECT value_json FROM site_settings WHERE key = $1', ['public_config']);
+    const siteCfgCheck = cfgCheck.rows[0]?.value_json || {};
+    const hasFallbackQris =
+      typeof siteCfgCheck.fallbackQrisStaticPayload === 'string' &&
+      isValidEmvQris(siteCfgCheck.fallbackQrisStaticPayload);
+    if (!hasFallbackQris) {
+      return c.json({ success: false, error: 'Pembayaran QRIS belum tersedia. Silakan pilih metode lain.' }, 503);
+    }
+  }
   const dbClient = await pool.connect();
 
   try {
@@ -619,7 +628,7 @@ app.post('/api/orders', async (c) => {
         uniqueCode,
         {
           staticQrisPayload: typeof siteCfg.fallbackQrisStaticPayload === 'string' ? siteCfg.fallbackQrisStaticPayload : '',
-          forceFallback: Boolean(siteCfg.fallbackQrisForce),
+          forceFallback: Boolean(siteCfg.fallbackQrisForce) || !qrisEnabled,
         }
       );
       qbizInvoiceId = inv.id;
