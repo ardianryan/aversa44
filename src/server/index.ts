@@ -2954,7 +2954,8 @@ if (fs.existsSync(distClientDir)) {
     }
     const htmlPath = path.join(distClientDir, 'index.html');
     const html = fs.readFileSync(htmlPath, 'utf8');
-    c.header('Cache-Control', 'no-cache');
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    c.header('Pragma', 'no-cache');
     return c.html(html);
   });
 } else {
