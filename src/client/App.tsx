@@ -17,6 +17,7 @@ import type {
   StaffUser,
   TicketTier,
 } from './types.ts';
+import { formatRupiah } from './types.ts';
 
 const TAB_TO_PATH: Record<ActiveTab, string> = {
   stage: '/',
@@ -207,6 +208,7 @@ export function App() {
   }
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const cartSubtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 
   const hasActiveTickets = (catalog?.ticketTiers.length ?? 0) > 0;
   const hasActiveMerch = (catalog?.merchProducts.length ?? 0) > 0;
@@ -583,6 +585,35 @@ export function App() {
           </div>
         </div>
       </footer>
+
+      {/* Floating Bottom Cart Pill (Visible whenever cart has items & checkout is closed) */}
+      {cartCount > 0 && !checkoutOpen && (
+        <div className="fixed bottom-[76px] lg:bottom-6 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-lg z-40 pointer-events-none">
+          <button
+            type="button"
+            onClick={() => setCheckoutOpen(true)}
+            aria-label={`Buka keranjang belanja, ${cartCount} item, total ${formatRupiah(cartSubtotal)}`}
+            className="pointer-events-auto w-full min-h-[54px] px-2.5 sm:px-3.5 py-2 rounded-full bg-[#250428]/95 backdrop-blur-md border border-[#F5C538]/75 shadow-[0_14px_38px_rgba(0,0,0,0.65)] flex items-center justify-between gap-2 sm:gap-3 hover:border-[#FDF39D] active:scale-[0.99] transition-all"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-[#310603] border border-[#F5C538]/55 text-[11px] font-black text-[#F5C538] shrink-0">
+                {cartCount} Item
+              </span>
+              <span className="text-xs sm:text-sm font-extrabold text-[#FFF5D6] whitespace-nowrap">
+                Total<span className="hidden sm:inline"> Belanja</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+              <span className="text-xs sm:text-base font-black text-[#F7D160]">
+                {formatRupiah(cartSubtotal)}
+              </span>
+              <span className="px-3 sm:px-3.5 py-1.5 rounded-full bg-gradient-to-r from-[#E09D17] via-[#F5C538] to-[#F7D160] text-[#310603] text-xs font-black">
+                Checkout &rarr;
+              </span>
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* Mobile-First Thumb-Zone Bottom Navigation Bar (Adapts cleanly to active tabs) */}
       <nav

@@ -630,6 +630,62 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               ))}
             </div>
 
+            {/* Kode Kupon / Promo (Step 1) */}
+            <div className="space-y-2.5 rounded-xl bg-[#1A021D]/70 border border-[#F5C538]/25 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#F7D160]">Kode Kupon / Promo</h3>
+                {appliedCoupon && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedCoupon(null);
+                      setCouponInput('');
+                      setCouponError('');
+                    }}
+                    className="text-[11px] font-bold text-[#F5B8CB] hover:underline"
+                  >
+                    Hapus Kupon
+                  </button>
+                )}
+              </div>
+              {appliedCoupon ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-[#A0D9CA]/10 border border-[#A0D9CA]/40 px-3.5 py-2.5">
+                  <div>
+                    <div className="text-xs font-extrabold text-[#A0D9CA]">
+                      Kupon {appliedCoupon.code} aktif
+                    </div>
+                    {appliedCoupon.description && (
+                      <div className="text-[11px] text-[#FFF5D6]/80">{appliedCoupon.description}</div>
+                    )}
+                  </div>
+                  <div className="text-xs font-black text-[#A0D9CA]">
+                    -{formatRupiah(appliedCoupon.discountAmount)}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                    placeholder="Masukkan kode kupon (opsional)"
+                    className="flex-1 min-h-[44px] px-3.5 rounded-xl bg-[#26042A] border border-[#F5C538]/30 text-sm font-mono uppercase text-[#FFF5D6] placeholder:font-sans placeholder:normal-case placeholder:text-[#FFF5D6]/45"
+                  />
+                  <button
+                    type="button"
+                    disabled={couponBusy || !couponInput.trim()}
+                    onClick={handleApplyCoupon}
+                    className="min-h-[44px] px-5 rounded-xl bg-[#310603] border border-[#F5C538]/55 text-xs font-extrabold text-[#FDF39D] disabled:opacity-50"
+                  >
+                    {couponBusy ? 'Memeriksa...' : 'Pakai Kupon'}
+                  </button>
+                </div>
+              )}
+              {couponError && (
+                <div className="text-[11px] font-bold text-[#F5B8CB]">{couponError}</div>
+              )}
+            </div>
+
             {/* Buyer Information */}
             <div className="space-y-3 rounded-xl bg-[#1A021D]/70 border border-[#F5C538]/25 p-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-[#F7D160]">Identitas Pemesan</h3>
