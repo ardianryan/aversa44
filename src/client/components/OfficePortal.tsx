@@ -8,6 +8,7 @@ import {
   OfficeMerchCmsView,
   OfficeOrdersView,
   OfficeOverviewView,
+  OfficeCouponsCmsView,
   OfficeShippingCmsView,
   OfficeSponsorshipCmsView,
   OfficeStaffRbacView,
@@ -35,6 +36,7 @@ type OfficeSectionId =
   | 'tickets'
   | 'merch'
   | 'shipping'
+  | 'coupons'
   | 'hero-settings'
   | 'timeline'
   | 'anatomy-credits'
@@ -51,6 +53,7 @@ const OFFICE_SLUGS: Record<OfficeSectionId, string> = {
   tickets: '/office/tiket',
   merch: '/office/merch',
   shipping: '/office/pengiriman',
+  coupons: '/office/kupon',
   'hero-settings': '/office/panggung',
   timeline: '/office/timeline',
   'anatomy-credits': '/office/anatomi',
@@ -184,6 +187,20 @@ const NAV_GROUPS: NavGroupDef[] = [
             <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" />
             <circle cx="17" cy="18" r="2" />
             <circle cx="7" cy="18" r="2" />
+          </svg>
+        ),
+      },
+      {
+        id: 'coupons',
+        label: 'Kupon & Promo',
+        shortDesc: 'Kelola kode kupon diskon untuk pembelian tiket dan merchandise',
+        roles: ['ADMIN'],
+        icon: (
+          <svg {...iconProps}>
+            <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
+            <path d="M13 5v2" />
+            <path d="M13 17v2" />
+            <path d="M13 11v2" />
           </svg>
         ),
       },
@@ -891,6 +908,8 @@ export const OfficePortal: React.FC<OfficePortalProps> = ({
         return <OfficeMerchCmsView {...cmsProps} />;
       case 'shipping':
         return <OfficeShippingCmsView {...cmsProps} />;
+      case 'coupons':
+        return <OfficeCouponsCmsView {...cmsProps} />;
       case 'hero-settings':
         return <OfficeHeroSettingsCmsView {...cmsProps} />;
       case 'timeline':

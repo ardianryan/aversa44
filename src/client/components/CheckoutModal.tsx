@@ -54,6 +54,50 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [copiedTag, setCopiedTag] = useState('');
   const [checkoutStep, setCheckoutStep] = useState<1 | 2>(1);
   const [settling, setSettling] = useState(false);
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    description?: string;
+    discountAmount: number;
+  } | null>(null);
+  const [couponBusy, setCouponBusy] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
+  const handleApplyCoupon = async () => {
+    const cleanCode = couponInput.trim().toUpperCase();
+    if (!cleanCode) {
+      setCouponError('Masukkan kode kupon terlebih dahulu.');
+      return;
+    }
+    setCouponBusy(true);
+    setCouponError('');
+    try {
+      const res = await fetch('/api/coupons/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: cleanCode,
+          items: cart.map((i) => ({ itemType: i.itemType, id: i.id, quantity: i.quantity })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.coupon) {
+        setAppliedCoupon(null);
+        setCouponError(data.error || 'Kode kupon tidak dapat digunakan.');
+        return;
+      }
+      setAppliedCoupon({
+        code: data.coupon.code,
+        description: data.coupon.description,
+        discountAmount: Number(data.coupon.discountAmount || 0),
+      });
+      setCouponInput(data.coupon.code);
+    } catch {
+      setCouponError('Gagal memeriksa kode kupon.');
+    } finally {
+      setCouponBusy(false);
+    }
+  };
 
   const copyToClipboard = (tag: string, value: string) => {
     navigator.clipboard.writeText(value);
@@ -66,6 +110,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       setPaymentMethod(qrisEnabled ? 'QBIZ_QRIS' : 'CASH_BOOTH');
       setCheckoutStep(1);
       setErrorMsg('');
+      setCouponError('');
     }
   }, [open, qrisEnabled, createdResult]);
 
@@ -153,6 +198,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           shippingZoneId: hasMerch && activeZone ? activeZone.id : undefined,
           shippingAddress: hasMerch && fulfillmentMode !== 'PICKUP_BOOTH' ? shippingAddress : undefined,
           shippingNotes,
+          couponCode: appliedCoupon?.code || '',
           paymentMethod,
           items: cart.map((c) => ({
             itemType: c.itemType,
@@ -831,6 +877,62 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
+            {/* Kode Kupon / Promo */}
+            <div className="space-y-2.5 rounded-xl bg-[#1A021D]/70 border border-[#F5C538]/25 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#F7D160]">Kode Kupon / Promo</h3>
+                {appliedCoupon && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedCoupon(null);
+                      setCouponInput('');
+                      setCouponError('');
+                    }}
+                    className="text-[11px] font-bold text-[#F5B8CB] hover:underline"
+                  >
+                    Hapus Kupon
+                  </button>
+                )}
+              </div>
+              {appliedCoupon ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-[#A0D9CA]/10 border border-[#A0D9CA]/40 px-3.5 py-2.5">
+                  <div>
+                    <div className="text-xs font-extrabold text-[#A0D9CA]">
+                      Kupon {appliedCoupon.code} aktif
+                    </div>
+                    {appliedCoupon.description && (
+                      <div className="text-[11px] text-[#FFF5D6]/80">{appliedCoupon.description}</div>
+                    )}
+                  </div>
+                  <div className="text-xs font-black text-[#A0D9CA]">
+                    -{formatRupiah(appliedCoupon.discountAmount)}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                    placeholder="Masukkan kode kupon (opsional)"
+                    className="flex-1 min-h-[44px] px-3.5 rounded-xl bg-[#26042A] border border-[#F5C538]/30 text-sm font-mono uppercase text-[#FFF5D6] placeholder:font-sans placeholder:normal-case placeholder:text-[#FFF5D6]/45"
+                  />
+                  <button
+                    type="button"
+                    disabled={couponBusy || !couponInput.trim()}
+                    onClick={handleApplyCoupon}
+                    className="min-h-[44px] px-5 rounded-xl bg-[#310603] border border-[#F5C538]/55 text-xs font-extrabold text-[#FDF39D] disabled:opacity-50"
+                  >
+                    {couponBusy ? 'Memeriksa...' : 'Pakai Kupon'}
+                  </button>
+                </div>
+              )}
+              {couponError && (
+                <div className="text-[11px] font-bold text-[#F5B8CB]">{couponError}</div>
+              )}
+            </div>
+
             <TurnstileChallenge action="checkout" onToken={setSecurityToken} resetKey={securityReset} />
             {errorMsg && (
               <div role="alert" className="p-3 rounded-lg bg-[#310603] border border-[#F5B8CB] text-xs font-bold text-[#F5B8CB]">
@@ -844,13 +946,23 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <span>Subtotal Tiket &amp; Merch</span>
                 <span>{formatRupiah(subtotal)}</span>
               </div>
+              {appliedCoupon && (
+                <div className="flex flex-wrap justify-between gap-x-3 text-xs font-bold text-[#A0D9CA]">
+                  <span>Potongan Kupon ({appliedCoupon.code})</span>
+                  <span>-{formatRupiah(appliedCoupon.discountAmount)}</span>
+                </div>
+              )}
               <div className="flex flex-wrap justify-between gap-x-3 text-xs text-[#FFF5D6]/85">
                 <span>Biaya Pengiriman</span>
                 <span>{estimatedShipping === 0 ? 'Gratis' : formatRupiah(estimatedShipping)}</span>
               </div>
               <div className="flex flex-wrap justify-between gap-x-3 text-base font-extrabold text-[#FDF39D] pt-2 border-t border-[#F5C538]/20">
                 <span>Estimasi Total Tagihan</span>
-                <span>{formatRupiah(subtotal + estimatedShipping)}</span>
+                <span>
+                  {formatRupiah(
+                    Math.max(1000, subtotal - (appliedCoupon?.discountAmount || 0) + estimatedShipping)
+                  )}
+                </span>
               </div>
               <p className="text-[11px] text-[#A0D9CA]">
                 Untuk metode QRIS, sistem akan menambahkan 3 digit kode unik otomatis pada layar tagihan berikutnya.

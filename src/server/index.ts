@@ -316,6 +316,7 @@ const CreateOrderSchema = z.object({
   shippingAddress: z.string().trim().max(500).optional().or(z.literal('')),
   shippingNotes: z.string().trim().max(300).optional().or(z.literal('')),
   paymentMethod: z.enum(['QBIZ_QRIS', 'XENDIT', 'CASH_BOOTH', 'MANUAL_TRANSFER']),
+  couponCode: z.string().trim().max(40).optional().or(z.literal('')),
   items: z
     .array(
       z.object({
@@ -326,6 +327,73 @@ const CreateOrderSchema = z.object({
       })
     )
     .min(1, 'Keranjang pesanan masih kosong.'),
+});
+
+function computeCouponDiscount(coupon: any, ticketSubtotal: number, merchSubtotal: number): { ok: true; discountAmount: number } | { ok: false; error: string } {
+  if (!coupon || !coupon.is_active) return { ok: false, error: 'Kode kupon tidak ditemukan atau tidak aktif.' };
+  if (coupon.expires_at && new Date(coupon.expires_at).getTime() <= Date.now()) {
+    return { ok: false, error: 'Masa berlaku kupon sudah berakhir.' };
+  }
+  if (coupon.usage_limit !== null && coupon.usage_limit !== undefined && Number(coupon.usage_count) >= Number(coupon.usage_limit)) {
+    return { ok: false, error: 'Kuota penggunaan kupon sudah habis.' };
+  }
+  const eligibleSubtotal =
+    coupon.applies_to === 'TICKET' ? ticketSubtotal : coupon.applies_to === 'MERCH' ? merchSubtotal : ticketSubtotal + merchSubtotal;
+  if (eligibleSubtotal <= 0) {
+    return { ok: false, error: coupon.applies_to === 'TICKET' ? 'Kupon ini hanya berlaku untuk pembelian tiket.' : 'Kupon ini hanya berlaku untuk pembelian merchandise.' };
+  }
+  if (eligibleSubtotal < Number(coupon.min_purchase || 0)) {
+    return { ok: false, error: `Minimal pembelian Rp ${Number(coupon.min_purchase).toLocaleString('id-ID')} untuk memakai kupon ini.` };
+  }
+  let discount =
+    coupon.discount_type === 'PERCENT'
+      ? Math.floor((eligibleSubtotal * Number(coupon.discount_value)) / 100)
+      : Number(coupon.discount_value);
+  if (coupon.discount_type === 'PERCENT' && coupon.max_discount !== null && coupon.max_discount !== undefined && Number(coupon.max_discount) > 0) {
+    discount = Math.min(discount, Number(coupon.max_discount));
+  }
+  discount = Math.max(0, Math.min(eligibleSubtotal, discount));
+  return { ok: true, discountAmount: discount };
+}
+
+app.post('/api/coupons/validate', async (c) => {
+  const parsed = z.object({
+    code: z.string().trim().min(2).max(40),
+    items: z.array(z.object({ itemType: z.enum(['TICKET', 'MERCH']), id: z.number().int().positive(), quantity: z.number().int().min(1).max(20) })).min(1),
+  }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ success: false, error: 'Masukkan kode kupon yang valid.' }, 400);
+
+  const code = parsed.data.code.toUpperCase();
+  const couponRes = await pool.query('SELECT * FROM coupons WHERE code = $1', [code]);
+  const coupon = couponRes.rows[0];
+  if (!coupon) return c.json({ success: false, error: 'Kode kupon tidak ditemukan.' }, 404);
+
+  let ticketSubtotal = 0;
+  let merchSubtotal = 0;
+  for (const it of parsed.data.items) {
+    if (it.itemType === 'TICKET') {
+      const r = await pool.query('SELECT price FROM ticket_tiers WHERE id = $1 AND is_active = TRUE', [it.id]);
+      if (r.rows[0]) ticketSubtotal += Number(r.rows[0].price) * it.quantity;
+    } else {
+      const r = await pool.query('SELECT price FROM merch_products WHERE id = $1 AND is_active = TRUE', [it.id]);
+      if (r.rows[0]) merchSubtotal += Number(r.rows[0].price) * it.quantity;
+    }
+  }
+
+  const calc = computeCouponDiscount(coupon, ticketSubtotal, merchSubtotal);
+  if (!calc.ok) return c.json({ success: false, error: calc.error }, 400);
+
+  return c.json({
+    success: true,
+    coupon: {
+      code: coupon.code,
+      description: coupon.description,
+      discount_type: coupon.discount_type,
+      discount_value: coupon.discount_value,
+      applies_to: coupon.applies_to,
+      discountAmount: calc.discountAmount,
+    },
+  });
 });
 
 app.post('/api/orders', async (c) => {
@@ -484,7 +552,25 @@ app.post('/api/orders', async (c) => {
       }
     }
 
-    const baseAmount = subtotalAmount + shippingAmount;
+    let appliedCouponCode: string | null = null;
+    let discountAmount = 0;
+    const rawCoupon = (input.couponCode || '').trim().toUpperCase();
+    if (rawCoupon) {
+      const cRes = await dbClient.query('SELECT * FROM coupons WHERE code = $1 FOR UPDATE', [rawCoupon]);
+      const coupon = cRes.rows[0];
+      const ticketSubtotal = resolvedItems.filter((it) => it.itemType === 'TICKET').reduce((s, it) => s + it.subtotal, 0);
+      const merchSubtotal = resolvedItems.filter((it) => it.itemType === 'MERCH').reduce((s, it) => s + it.subtotal, 0);
+      const calc = computeCouponDiscount(coupon, ticketSubtotal, merchSubtotal);
+      if (!calc.ok) {
+        await dbClient.query('ROLLBACK');
+        return c.json({ success: false, error: calc.error }, 400);
+      }
+      appliedCouponCode = coupon.code;
+      discountAmount = calc.discountAmount;
+      await dbClient.query('UPDATE coupons SET usage_count = usage_count + 1 WHERE id = $1', [coupon.id]);
+    }
+
+    const baseAmount = Math.max(1000, subtotalAmount - discountAmount + shippingAmount);
     const orderCode = `AVR44-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     // 3. Collision-free 3-digit unique code for QBiz Dynamic QRIS / Transfer
@@ -552,6 +638,7 @@ app.post('/api/orders', async (c) => {
         identity_number, kelas_angkatan, order_type, fulfillment_mode,
         shipping_zone_id, shipping_address, shipping_notes, fulfillment_status,
         pickup_qr_token, subtotal_amount, shipping_amount, unique_code, total_amount,
+        coupon_code, discount_amount,
         payment_method, payment_status, qbiz_invoice_id, qbiz_qris_payload,
         qbiz_checkout_url, qbiz_mode, expired_at
       ) VALUES (
@@ -559,8 +646,9 @@ app.post('/api/orders', async (c) => {
         $6, $7, $8, $9,
         $10, $11, $12, 'UNFULFILLED',
         $13, $14, $15, $16, $17,
-        $18, 'PENDING', $19, $20,
-        $21, $22, $23
+        $18, $19,
+        $20, 'PENDING', $21, $22,
+        $23, $24, $25
       ) RETURNING *`,
       [
         orderCode,
@@ -580,6 +668,8 @@ app.post('/api/orders', async (c) => {
         shippingAmount,
         uniqueCode,
         finalTotal,
+        appliedCouponCode,
+        discountAmount,
         input.paymentMethod,
         qbizInvoiceId,
         qbizQrisPayload,
@@ -1545,7 +1635,7 @@ app.get('/api/admin/overview', async (c) => {
   const auth = requireRoles(c, ['ADMIN', 'CASHIER']);
   if (auth instanceof Response) return auth;
 
-  const [metricsRes, ordersRes, tiersRes, merchRes, zonesRes, timelineRes, sponsorsRes, settingsRes, staffRes] =
+  const [metricsRes, ordersRes, tiersRes, merchRes, zonesRes, timelineRes, sponsorsRes, couponsRes, settingsRes, staffRes] =
     await Promise.all([
       pool.query(`
         SELECT
@@ -1570,6 +1660,7 @@ app.get('/api/admin/overview', async (c) => {
       pool.query('SELECT * FROM shipping_zones ORDER BY sort_order ASC, id ASC'),
       pool.query('SELECT * FROM event_timeline ORDER BY sort_order ASC, id ASC'),
       pool.query('SELECT * FROM sponsorship_inquiries ORDER BY created_at DESC LIMIT 80'),
+      pool.query('SELECT * FROM coupons ORDER BY created_at DESC, id DESC'),
       pool.query('SELECT value_json FROM site_settings WHERE key = $1', ['public_config']),
       auth.role === 'ADMIN'
         ? pool.query('SELECT id, username, full_name, role, is_active, created_at FROM staff_users ORDER BY id ASC')
@@ -1585,6 +1676,7 @@ app.get('/api/admin/overview', async (c) => {
     shippingZones: zonesRes.rows,
     timeline: timelineRes.rows,
     sponsorships: sponsorsRes.rows,
+    coupons: couponsRes.rows,
     siteSettings: settingsRes.rows[0]?.value_json || {},
     staffUsers: staffRes.rows,
   });
@@ -1675,11 +1767,15 @@ app.delete('/api/admin/orders/:orderCode', async (c) => {
   const dbClient = await pool.connect();
   try {
     await dbClient.query('BEGIN');
-    const ordRes = await dbClient.query('SELECT id FROM orders WHERE order_code = $1 FOR UPDATE', [orderCode]);
+    const ordRes = await dbClient.query('SELECT id, coupon_code FROM orders WHERE order_code = $1 FOR UPDATE', [orderCode]);
     const ord = ordRes.rows[0];
     if (!ord) {
       await dbClient.query('ROLLBACK');
       return c.json({ success: false, error: 'Pesanan tidak ditemukan.' }, 404);
+    }
+
+    if (ord.coupon_code) {
+      await dbClient.query('UPDATE coupons SET usage_count = GREATEST(0, usage_count - 1) WHERE code = $1', [ord.coupon_code]);
     }
 
     const itemsRes = await dbClient.query('SELECT item_type, ticket_tier_id, merch_product_id, quantity FROM order_items WHERE order_id = $1', [ord.id]);
@@ -1700,6 +1796,83 @@ app.delete('/api/admin/orders/:orderCode', async (c) => {
   } finally {
     dbClient.release();
   }
+});
+
+// --- COUPONS / PROMO CODES CRUD ---
+const CouponMutationSchema = z.object({
+  code: z.string().trim().min(2).max(40).regex(/^[A-Z0-9_-]+$/i, 'Kode kupon hanya boleh huruf, angka, - dan _'),
+  description: z.string().trim().max(200).optional().default(''),
+  discount_type: z.enum(['PERCENT', 'FIXED']),
+  discount_value: z.number().int().min(1),
+  min_purchase: z.number().int().min(0).optional().default(0),
+  max_discount: z.number().int().positive().nullable().optional(),
+  usage_limit: z.number().int().positive().nullable().optional(),
+  applies_to: z.enum(['ALL', 'TICKET', 'MERCH']).optional().default('ALL'),
+  is_active: z.boolean().optional().default(true),
+  expires_at: z.string().nullable().optional(),
+});
+
+app.post('/api/admin/coupons', async (c) => {
+  const auth = requireRoles(c, ['ADMIN']);
+  if (auth instanceof Response) return auth;
+  const parsed = CouponMutationSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ success: false, error: parsed.error.issues[0]?.message || 'Data kupon tidak valid.' }, 400);
+  const d = parsed.data;
+  if (d.discount_type === 'PERCENT' && d.discount_value > 100) {
+    return c.json({ success: false, error: 'Diskon persentase maksimal 100%.' }, 400);
+  }
+  const res = await pool.query(
+    `INSERT INTO coupons (code, description, discount_type, discount_value, min_purchase, max_discount, usage_limit, applies_to, is_active, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING *`,
+    [d.code.toUpperCase(), d.description, d.discount_type, d.discount_value, d.min_purchase, d.max_discount ?? null, d.usage_limit ?? null, d.applies_to, d.is_active, d.expires_at ? new Date(d.expires_at).toISOString() : null]
+  );
+  return c.json({ success: true, coupon: res.rows[0] }, 201);
+});
+
+app.put('/api/admin/coupons/:id', async (c) => {
+  const auth = requireRoles(c, ['ADMIN']);
+  if (auth instanceof Response) return auth;
+  const id = Number(c.req.param('id'));
+  const parsed = CouponMutationSchema.partial().safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ success: false, error: parsed.error.issues[0]?.message || 'Data kupon tidak valid.' }, 400);
+  const cur = await pool.query('SELECT * FROM coupons WHERE id = $1', [id]);
+  if (!cur.rows[0]) return c.json({ success: false, error: 'Kupon tidak ditemukan.' }, 404);
+  const ex = cur.rows[0];
+  const d = parsed.data;
+  const nextType = d.discount_type ?? ex.discount_type;
+  const nextVal = d.discount_value ?? ex.discount_value;
+  if (nextType === 'PERCENT' && nextVal > 100) {
+    return c.json({ success: false, error: 'Diskon persentase maksimal 100%.' }, 400);
+  }
+  const res = await pool.query(
+    `UPDATE coupons
+     SET code = $1, description = $2, discount_type = $3, discount_value = $4, min_purchase = $5,
+         max_discount = $6, usage_limit = $7, applies_to = $8, is_active = $9, expires_at = $10
+     WHERE id = $11 RETURNING *`,
+    [
+      (d.code ?? ex.code).toUpperCase(),
+      d.description ?? ex.description,
+      nextType,
+      nextVal,
+      d.min_purchase ?? ex.min_purchase,
+      d.max_discount !== undefined ? d.max_discount : ex.max_discount,
+      d.usage_limit !== undefined ? d.usage_limit : ex.usage_limit,
+      d.applies_to ?? ex.applies_to,
+      d.is_active !== undefined ? d.is_active : ex.is_active,
+      d.expires_at !== undefined ? (d.expires_at ? new Date(d.expires_at).toISOString() : null) : ex.expires_at,
+      id,
+    ]
+  );
+  return c.json({ success: true, coupon: res.rows[0] });
+});
+
+app.delete('/api/admin/coupons/:id', async (c) => {
+  const auth = requireRoles(c, ['ADMIN']);
+  if (auth instanceof Response) return auth;
+  const id = Number(c.req.param('id'));
+  await pool.query('DELETE FROM coupons WHERE id = $1', [id]);
+  return c.json({ success: true, deleted: true });
 });
 
 // --- TICKET TIERS CRUD ---

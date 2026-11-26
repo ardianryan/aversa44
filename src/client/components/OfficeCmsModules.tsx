@@ -2806,3 +2806,367 @@ export const OfficeStaffRbacView: React.FC<CmsCommonProps> = ({
     </div>
   );
 };
+
+export const OfficeCouponsCmsView: React.FC<CmsCommonProps> = ({ adminData, onRefresh, onNotify }) => {
+  const coupons = adminData.coupons || [];
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [code, setCode] = useState('');
+  const [description, setDescription] = useState('');
+  const [discountType, setDiscountType] = useState<'PERCENT' | 'FIXED'>('PERCENT');
+  const [discountValue, setDiscountValue] = useState('10');
+  const [minPurchase, setMinPurchase] = useState('0');
+  const [maxDiscount, setMaxDiscount] = useState('');
+  const [usageLimit, setUsageLimit] = useState('');
+  const [appliesTo, setAppliesTo] = useState<'ALL' | 'TICKET' | 'MERCH'>('ALL');
+  const [isActive, setIsActive] = useState(true);
+  const [expiresAt, setExpiresAt] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; code: string } | null>(null);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setCode('');
+    setDescription('');
+    setDiscountType('PERCENT');
+    setDiscountValue('10');
+    setMinPurchase('0');
+    setMaxDiscount('');
+    setUsageLimit('');
+    setAppliesTo('ALL');
+    setIsActive(true);
+    setExpiresAt('');
+    setErrorMsg('');
+    setSheetOpen(true);
+  };
+
+  const openEdit = (c: any) => {
+    setEditingId(c.id);
+    setCode(c.code || '');
+    setDescription(c.description || '');
+    setDiscountType(c.discount_type === 'FIXED' ? 'FIXED' : 'PERCENT');
+    setDiscountValue(String(c.discount_value ?? 10));
+    setMinPurchase(String(c.min_purchase ?? 0));
+    setMaxDiscount(c.max_discount != null ? String(c.max_discount) : '');
+    setUsageLimit(c.usage_limit != null ? String(c.usage_limit) : '');
+    setAppliesTo(c.applies_to === 'TICKET' || c.applies_to === 'MERCH' ? c.applies_to : 'ALL');
+    setIsActive(Boolean(c.is_active));
+    setExpiresAt(c.expires_at ? String(c.expires_at).slice(0, 16) : '');
+    setErrorMsg('');
+    setSheetOpen(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const payload = {
+        code: code.trim().toUpperCase(),
+        description: description.trim(),
+        discount_type: discountType,
+        discount_value: Number(discountValue) || 0,
+        min_purchase: Number(minPurchase) || 0,
+        max_discount: maxDiscount.trim() ? Number(maxDiscount) : null,
+        usage_limit: usageLimit.trim() ? Number(usageLimit) : null,
+        applies_to: appliesTo,
+        is_active: isActive,
+        expires_at: expiresAt.trim() ? new Date(expiresAt).toISOString() : null,
+      };
+      const url = editingId ? `/api/admin/coupons/${editingId}` : '/api/admin/coupons';
+      const method = editingId ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(data.error || 'Gagal menyimpan kupon.');
+        return;
+      }
+      setSheetOpen(false);
+      onNotify(editingId ? 'Kupon berhasil diperbarui.' : 'Kupon baru berhasil dibuat.');
+      await onRefresh();
+    } catch {
+      setErrorMsg('Gagal terhubung ke server.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleActive = async (c: any) => {
+    await fetch(`/api/admin/coupons/${c.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: c.code,
+        description: c.description || '',
+        discount_type: c.discount_type,
+        discount_value: Number(c.discount_value),
+        min_purchase: Number(c.min_purchase || 0),
+        max_discount: c.max_discount != null ? Number(c.max_discount) : null,
+        usage_limit: c.usage_limit != null ? Number(c.usage_limit) : null,
+        applies_to: c.applies_to || 'ALL',
+        is_active: !c.is_active,
+        expires_at: c.expires_at || null,
+      }),
+    });
+    onNotify('Status kupon diperbarui.');
+    await onRefresh();
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    await fetch(`/api/admin/coupons/${deleteTarget.id}`, { method: 'DELETE' });
+    setDeleteTarget(null);
+    onNotify('Kupon dihapus.');
+    await onRefresh();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-black text-[#F7D160]">Kode Kupon &amp; Promo</h2>
+          <p className="text-xs text-[#FFF5D6]/80">Kelola kode potongan harga untuk tiket maupun merchandise AVERSA 44.</p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="min-h-[44px] px-4 py-2 rounded-xl bg-gradient-to-r from-[#E09D17] to-[#F5C538] text-[#310603] text-xs font-extrabold shadow-lg shadow-[#F5C538]/15"
+        >
+          + Buat Kupon Baru
+        </button>
+      </div>
+
+      {coupons.length === 0 ? (
+        <div className="rounded-2xl bg-[#250428] border border-[#F5C538]/25 p-8 text-center space-y-2">
+          <div className="text-sm font-bold text-[#F7D160]">Belum ada kode kupon</div>
+          <p className="text-xs text-[#FFF5D6]/75">Tambahkan kode promo pertama seperti AVERSA44 atau EARLYBIRD untuk pembeli.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {coupons.map((c: any) => (
+            <div key={c.id} className="rounded-2xl bg-[#250428] border border-[#F5C538]/30 p-5 flex flex-col justify-between gap-4">
+              <div className="space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="inline-block px-2.5 py-1 rounded-lg bg-[#1A021D] border border-[#F5C538]/40 font-mono text-sm font-black tracking-wider text-[#F5C538]">
+                      {c.code}
+                    </span>
+                    <div className="mt-2 text-base font-extrabold text-[#FDF39D]">
+                      {c.discount_type === 'PERCENT'
+                        ? `Diskon ${c.discount_value}%`
+                        : `Potongan ${formatRupiah(Number(c.discount_value || 0))}`}
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${
+                      c.is_active
+                        ? 'bg-[#A0D9CA]/15 border-[#A0D9CA]/50 text-[#A0D9CA]'
+                        : 'bg-[#310603] border-[#F5B8CB]/40 text-[#F5B8CB]'
+                    }`}
+                  >
+                    {c.is_active ? 'Aktif' : 'Nonaktif'}
+                  </span>
+                </div>
+                {c.description && <p className="text-xs text-[#FFF5D6]/85">{c.description}</p>}
+                <div className="grid grid-cols-2 gap-2 pt-2 text-[11px] text-[#FFF5D6]/80 border-t border-[#F5C538]/15">
+                  <div>
+                    <span className="text-[#FFF5D6]/55">Berlaku:</span>{' '}
+                    <strong className="text-[#F7D160]">
+                      {c.applies_to === 'TICKET' ? 'Tiket' : c.applies_to === 'MERCH' ? 'Merchandise' : 'Semua Item'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[#FFF5D6]/55">Terpakai:</span>{' '}
+                    <strong className="text-[#A0D9CA]">
+                      {c.usage_count ?? 0}{c.usage_limit != null ? ` / ${c.usage_limit}` : ' (Tanpa batas)'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[#FFF5D6]/55">Min. Belanja:</span>{' '}
+                    <strong>{c.min_purchase > 0 ? formatRupiah(Number(c.min_purchase)) : 'Tidak ada'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[#FFF5D6]/55">Maks. Potongan:</span>{' '}
+                    <strong>{c.max_discount != null ? formatRupiah(Number(c.max_discount)) : '-'}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-[#F5C538]/15">
+                <button
+                  type="button"
+                  onClick={() => openEdit(c)}
+                  className="flex-1 min-h-[40px] px-3 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-xs font-bold text-[#FDF39D] hover:border-[#F5C538]"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleActive(c)}
+                  className="min-h-[40px] px-3 rounded-xl border border-[#F5C538]/30 text-xs font-bold text-[#A0D9CA] hover:bg-[#1A021D]"
+                >
+                  {c.is_active ? 'Matikan' : 'Aktifkan'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget({ id: c.id, code: c.code })}
+                  className="min-h-[40px] px-3 rounded-xl bg-[#7D1B05]/80 border border-[#F5B8CB]/40 text-xs font-bold text-[#FFF5D6] hover:bg-[#7D1B05]"
+                >
+                  Hapus
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ResponsiveSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={editingId ? 'Edit Kode Kupon' : 'Buat Kode Kupon Baru'}
+        subtitle="Atur potongan persentase atau nominal rupiah untuk checkout."
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          {errorMsg && (
+            <div className="p-3 rounded-xl bg-[#310603] border border-[#F5B8CB] text-xs font-bold text-[#F5B8CB]">
+              {errorMsg}
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-bold text-[#F7D160] mb-1">Kode Kupon *</label>
+            <input
+              required
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="Contoh: AVERSA44"
+              className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm font-mono uppercase text-[#FFF5D6]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-[#F7D160] mb-1">Deskripsi Singkat</label>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Contoh: Diskon khusus early bird Dies Natalis 44"
+              className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-[#F7D160] mb-1">Tipe Potongan</label>
+              <select
+                value={discountType}
+                onChange={(e) => setDiscountType(e.target.value as 'PERCENT' | 'FIXED')}
+                className="w-full min-h-[44px] px-3 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+              >
+                <option value="PERCENT">Persentase (%)</option>
+                <option value="FIXED">Nominal Rupiah (Rp)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-[#F7D160] mb-1">
+                {discountType === 'PERCENT' ? 'Nilai Diskon (%)' : 'Nominal Potongan (Rp)'}
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={discountType === 'PERCENT' ? 100 : undefined}
+                required
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+                className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-[#F7D160] mb-1">Minimal Belanja (Rp)</label>
+              <input
+                type="number"
+                min={0}
+                value={minPurchase}
+                onChange={(e) => setMinPurchase(e.target.value)}
+                className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-[#F7D160] mb-1">Maks. Potongan (Rp, opsional)</label>
+              <input
+                type="number"
+                min={0}
+                value={maxDiscount}
+                onChange={(e) => setMaxDiscount(e.target.value)}
+                placeholder="Kosongkan jika tanpa batas"
+                className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-[#F7D160] mb-1">Berlaku Untuk</label>
+              <select
+                value={appliesTo}
+                onChange={(e) => setAppliesTo(e.target.value as 'ALL' | 'TICKET' | 'MERCH')}
+                className="w-full min-h-[44px] px-3 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+              >
+                <option value="ALL">Semua (Tiket &amp; Merch)</option>
+                <option value="TICKET">Khusus Tiket</option>
+                <option value="MERCH">Khusus Merchandise</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-[#F7D160] mb-1">Kuota Pemakaian (opsional)</label>
+              <input
+                type="number"
+                min={1}
+                value={usageLimit}
+                onChange={(e) => setUsageLimit(e.target.value)}
+                placeholder="Tanpa batas"
+                className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-[#F7D160] mb-1">Berlaku Sampai (opsional)</label>
+            <input
+              type="datetime-local"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#1A021D] border border-[#F5C538]/35 text-sm text-[#FFF5D6]"
+            />
+          </div>
+          <label className="flex items-center gap-2.5 text-xs font-bold text-[#FFF5D6] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+              className="w-4 h-4 accent-[#F5C538]"
+            />
+            Aktifkan kupon ini sekarang
+          </label>
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full min-h-[48px] px-5 rounded-xl bg-gradient-to-r from-[#E09D17] to-[#F5C538] text-[#310603] font-extrabold text-sm"
+          >
+            {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan Kupon' : 'Simpan Kupon Baru'}
+          </button>
+        </form>
+      </ResponsiveSheet>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title={`Hapus Kupon ${deleteTarget?.code || ''}?`}
+        message="Kupon yang dihapus tidak lagi bisa digunakan pada transaksi baru."
+        confirmLabel="Ya, Hapus Kupon"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTarget(null)}
+      />
+    </div>
+  );
+};

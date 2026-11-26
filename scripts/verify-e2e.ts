@@ -603,6 +603,69 @@ async function run() {
     body: JSON.stringify(origFallback),
   });
 
+  // 10. Coupon CRUD, Validation, Order Discount & Order Delete Usage Rollback
+  const couponCode = `E2E${Date.now().toString().slice(-5)}`;
+  const createCouponRes = await fetch(`${BASE}/api/admin/coupons`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+    body: JSON.stringify({
+      code: couponCode,
+      description: 'Kupon Uji E2E 10%',
+      discount_type: 'PERCENT',
+      discount_value: 10,
+      min_purchase: 0,
+      applies_to: 'ALL',
+      is_active: true,
+    }),
+  });
+  const createCouponJson = await createCouponRes.json();
+  assert(createCouponRes.status === 201 && createCouponJson.coupon?.code === couponCode, 'Admin creates promo coupon');
+
+  const valCouponRes = await fetch(`${BASE}/api/coupons/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      code: couponCode,
+      items: [{ itemType: 'MERCH', id: catalog.merchProducts[0].id, quantity: 1 }],
+    }),
+  });
+  const valCouponJson = await valCouponRes.json();
+  assert(valCouponRes.status === 200 && valCouponJson.coupon?.discountAmount > 0, 'Public coupon validation computes discount amount');
+
+  const discountedOrderRes = await fetch(`${BASE}/api/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customerName: 'Pembeli Kupon E2E',
+      customerPhone: '085644445555',
+      customerType: 'UMUM',
+      fulfillmentMode: 'PICKUP_BOOTH',
+      paymentMethod: 'CASH_BOOTH',
+      couponCode,
+      items: [{ itemType: 'MERCH', id: catalog.merchProducts[0].id, variantLabel: 'Jet Black • M', quantity: 1 }],
+    }),
+  });
+  const discountedOrderJson = await discountedOrderRes.json();
+  assert(
+    discountedOrderRes.status === 201 &&
+      discountedOrderJson.order?.coupon_code === couponCode &&
+      Number(discountedOrderJson.order?.discount_amount) === Number(valCouponJson.coupon?.discountAmount),
+    'Order applies coupon discount and stores coupon_code'
+  );
+
+  // Clean up test order & coupon
+  const delOrderRes = await fetch(`${BASE}/api/admin/orders/${discountedOrderJson.order.order_code}`, {
+    method: 'DELETE',
+    headers: { Cookie: adminCookie },
+  });
+  assert(delOrderRes.status === 200, 'Admin deletes test coupon order');
+
+  const delCouponRes = await fetch(`${BASE}/api/admin/coupons/${createCouponJson.coupon.id}`, {
+    method: 'DELETE',
+    headers: { Cookie: adminCookie },
+  });
+  assert(delCouponRes.status === 200, 'Admin deletes test coupon');
+
   console.log('--- ALL E2E TESTS PASSED ---');
 }
 

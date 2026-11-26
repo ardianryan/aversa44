@@ -185,9 +185,27 @@ export interface OrderRecord {
   qbiz_mode: string | null;
   payment_proof_note: string | null;
   payment_proof_url?: string | null;
+  coupon_code?: string | null;
+  discount_amount?: number;
   paid_at: string | null;
   expired_at: string | null;
   created_at: string;
+}
+
+export interface CouponRecord {
+  id: number;
+  code: string;
+  description: string;
+  discount_type: 'PERCENT' | 'FIXED';
+  discount_value: number;
+  min_purchase: number;
+  max_discount: number | null;
+  usage_limit: number | null;
+  usage_count: number;
+  applies_to: 'ALL' | 'TICKET' | 'MERCH';
+  is_active: boolean;
+  expires_at: string | null;
+  created_at?: string;
 }
 
 export interface HydratedOrder {

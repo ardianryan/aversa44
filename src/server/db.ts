@@ -262,7 +262,25 @@ export async function initDatabase() {
       sort_order INTEGER DEFAULT 10
     );
 
+    CREATE TABLE IF NOT EXISTS coupons (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(40) UNIQUE NOT NULL,
+      description VARCHAR(200) NOT NULL DEFAULT '',
+      discount_type VARCHAR(16) NOT NULL CHECK (discount_type IN ('PERCENT', 'FIXED')),
+      discount_value INTEGER NOT NULL CHECK (discount_value > 0),
+      min_purchase INTEGER NOT NULL DEFAULT 0,
+      max_discount INTEGER,
+      usage_limit INTEGER,
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      applies_to VARCHAR(16) NOT NULL DEFAULT 'ALL' CHECK (applies_to IN ('ALL', 'TICKET', 'MERCH')),
+      is_active BOOLEAN DEFAULT TRUE,
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     ALTER TABLE event_timeline ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon_code VARCHAR(40);
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE staff_users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE staff_users DROP CONSTRAINT IF EXISTS staff_users_role_check;
     ALTER TABLE staff_users ADD CONSTRAINT staff_users_role_check CHECK (role IN ('ADMIN', 'CASHIER', 'SCANNER', 'MEDIA'));
